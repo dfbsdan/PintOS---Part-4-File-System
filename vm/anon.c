@@ -139,7 +139,7 @@ anon_swap_in (struct page *page, void *kva) {
 	ASSERT (hash_find (&swap_t.table, &anon_page->swap_elem));
 	ASSERT (bitmap_test (swap_t.bitmap, anon_page->idx));
 	swap_check_table ();
-	
+
 	/* Read from disk. */
 	sector = index_to_sector (anon_page->idx);
 	for (unsigned i = 0; i < SECTORS_PER_PAGE; i++)
