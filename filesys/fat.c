@@ -6,6 +6,9 @@
 #include <stdio.h>
 #include <string.h>
 
+#define data_start(FATBS) (1+((FATBS).fat_sectors))
+#define data_sectors(FATBS) (((FATBS).total_sectors) - (data_start(FATBS)))
+
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
 	unsigned int magic;
@@ -150,8 +153,19 @@ fat_boot_create (void) {
 	};
 }
 
+/*
+Initialize FAT file system.
+You have to initialize fat_length and data_start field of fat_fs.
+fat_length stores how many clusters in the filesystem and
+data_start stores in which sector we can start to store files.
+You may want to exploit some values stored in fat_fs->bs.
+Also, you may want to initialize some other useful data in this function.
+*/
+
 void
 fat_fs_init (void) {
+	fat_fs->fat_length = data_sectors(fat_fs->bs);
+	fat_fs->data_start = data_start(fat_fs->bs);
 	/* TODO: Your code goes here. */
 }
 
@@ -164,7 +178,17 @@ fat_fs_init (void) {
  * Returns 0 if fails to allocate a new cluster. */
 cluster_t
 fat_create_chain (cluster_t clst) {
-	/* TODO: Your code goes here. */
+	cluster_t new_clst;
+	for (new_clst=1; new_clst<=fat_fs->fat_length; new_clst++){
+		if (fat_fs->fat[new_clst] == 0){
+			fat_fs->fat[new_clst] = 0x0FFFFFFF;
+			break;
+		}
+	}
+	if (clst != 0){
+		fat_fs->fat[clst] = new_clst;
+	}
+	return new_clst;
 }
 
 /* Remove the chain of clusters starting from CLST.
@@ -172,18 +196,29 @@ fat_create_chain (cluster_t clst) {
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	/* TODO: Your code goes here. */
+	cluster_t pointer = clst;
+	if (pclst != 0){
+		fat_fs->fat[pclst] = 0x0FFFFFFF;
+	}
+	while (fat_fs->fat[clst] != 0x0FFFFFFF){
+		pointer = fat_fs->fat[clst];
+		fat_fs->fat[clst] = 0;
+		clst = pointer;
+	}
 }
 
 /* Update a value in the FAT table. */
 void
 fat_put (cluster_t clst, cluster_t val) {
 	/* TODO: Your code goes here. */
+	fat_fs->fat[clst] = val;
 }
 
 /* Fetch a value in the FAT table. */
 cluster_t
 fat_get (cluster_t clst) {
 	/* TODO: Your code goes here. */
+	return fat_fs->fat[clst];
 }
 
 /* Covert a cluster # to a sector number. */
