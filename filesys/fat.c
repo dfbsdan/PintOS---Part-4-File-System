@@ -166,6 +166,7 @@ void
 fat_fs_init (void) {
 	fat_fs->fat_length = data_sectors(fat_fs->bs);
 	fat_fs->data_start = data_start(fat_fs->bs);
+	lock_init(&fat_fs->write_lock);
 	/* TODO: Your code goes here. */
 }
 
@@ -178,6 +179,7 @@ fat_fs_init (void) {
  * Returns 0 if fails to allocate a new cluster. */
 cluster_t
 fat_create_chain (cluster_t clst) {
+	lock_acquire(&fat_fs->write_lock);
 	cluster_t new_clst;
 	for (new_clst=1; new_clst<=fat_fs->fat_length; new_clst++){
 		if (fat_fs->fat[new_clst] == 0){
@@ -188,6 +190,7 @@ fat_create_chain (cluster_t clst) {
 	if (clst != 0){
 		fat_fs->fat[clst] = new_clst;
 	}
+	lock_release(&fat_fs->write_lock);
 	return new_clst;
 }
 
@@ -196,6 +199,7 @@ fat_create_chain (cluster_t clst) {
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	/* TODO: Your code goes here. */
+	lock_acquire(&fat_fs->write_lock);
 	cluster_t pointer = clst;
 	if (pclst != 0){
 		fat_fs->fat[pclst] = 0x0FFFFFFF;
@@ -205,13 +209,17 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
 		fat_fs->fat[clst] = 0;
 		clst = pointer;
 	}
+	lock_release(&fat_fs->write_lock);
 }
 
 /* Update a value in the FAT table. */
 void
 fat_put (cluster_t clst, cluster_t val) {
 	/* TODO: Your code goes here. */
+
+	lock_acquire(&fat_fs->write_lock);
 	fat_fs->fat[clst] = val;
+	lock_release(&fat_fs->write_lock);
 }
 
 /* Fetch a value in the FAT table. */
@@ -225,4 +233,6 @@ fat_get (cluster_t clst) {
 disk_sector_t
 cluster_to_sector (cluster_t clst) {
 	/* TODO: Your code goes here. */
+	disk_sector_t secnum = fat_fs->data_start+clst-1;
+	return secnum;
 }
