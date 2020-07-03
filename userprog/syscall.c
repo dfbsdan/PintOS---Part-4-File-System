@@ -11,6 +11,7 @@
 #include "threads/init.h"
 #include "threads/vaddr.h"
 #include "threads/palloc.h"
+#include "threads/mmu.h"
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "devices/input.h"
@@ -36,14 +37,14 @@ void syscall_handler (struct intr_frame *);
 static void syscall_halt (void);
 static void syscall_exit (int status);
 static int syscall_fork (const char *thr_name, struct intr_frame *f);
-static void syscall_exec (const char *cmd_line);
+static void syscall_exec (struct intr_frame *f, const char *cmd_line);
 static int syscall_wait (int pid);
-static bool syscall_create (const char *file, unsigned initial_size);
-static bool syscall_remove (const char *file);
-static int syscall_open (const char *file);
+static bool syscall_create (struct intr_frame *f, const char *file, unsigned initial_size);
+static bool syscall_remove (struct intr_frame *f, const char *file);
+static int syscall_open (struct intr_frame *f, const char *file);
 static int syscall_filesize (int fd);
-static int syscall_read (int fd, void *buffer, unsigned length);
-static int syscall_write (int fd, const void *buffer, unsigned length);
+static int syscall_read (struct intr_frame *f, int fd, void *buffer, unsigned length);
+static int syscall_write (struct intr_frame *f, int fd, const void *buffer, unsigned length);
 static void syscall_seek (int fd, unsigned position);
 static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
@@ -51,11 +52,11 @@ static int syscall_dup2 (int oldfd, int newfd);
 static void *syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void syscall_munmap (void *addr);
 static int create_file_descriptor (struct file *file);
-static void check_mem_space_read (const void *addr_, const size_t size, const bool is_str);
-static void check_mem_space_write (const void *addr_, const size_t size);
+static void check_mem_space_read (struct intr_frame *f, const void *addr_, const size_t size, const bool is_str);
+static void check_mem_space_write (struct intr_frame *f, const void *addr_, const size_t size);
 static int64_t get_user(const uint8_t *uaddr);
 static bool put_user(uint8_t *udst, uint8_t byte);
-static bool valid_user_addr (const uint8_t *addr);
+static bool valid_user_addr (struct intr_frame *f, const uint8_t *addr, bool write);
 
 void
 syscall_init (void) {
@@ -85,28 +86,28 @@ syscall_handler (struct intr_frame *f) {
 			f->R.rax = (uint64_t)syscall_fork ((const char*)f->R.rdi, f);
 			break;
 		case SYS_EXEC:
-			syscall_exec ((const char*)f->R.rdi);
+			syscall_exec (f, (const char*)f->R.rdi);
 			break;
 		case SYS_WAIT:
 			f->R.rax = (uint64_t)syscall_wait ((int)f->R.rdi);
 			break;
 		case SYS_CREATE:
-			f->R.rax = (uint64_t)syscall_create ((const char*)f->R.rdi, (unsigned)f->R.rsi);
+			f->R.rax = (uint64_t)syscall_create (f, (const char*)f->R.rdi, (unsigned)f->R.rsi);
 			break;
 		case SYS_REMOVE:
-			f->R.rax = (uint64_t)syscall_remove ((const char*)f->R.rdi);
+			f->R.rax = (uint64_t)syscall_remove (f, (const char*)f->R.rdi);
 			break;
 		case SYS_OPEN:
-			f->R.rax = (uint64_t)syscall_open ((const char*)f->R.rdi);
+			f->R.rax = (uint64_t)syscall_open (f, (const char*)f->R.rdi);
 			break;
 		case SYS_FILESIZE:
 			f->R.rax = (uint64_t)syscall_filesize ((int)f->R.rdi);
 			break;
 		case SYS_READ:
-			f->R.rax = (uint64_t)syscall_read ((int)f->R.rdi, (void*)f->R.rsi, (unsigned)f->R.rdx);
+			f->R.rax = (uint64_t)syscall_read (f, (int)f->R.rdi, (void*)f->R.rsi, (unsigned)f->R.rdx);
 			break;
 		case SYS_WRITE:
-			f->R.rax = (uint64_t)syscall_write ((int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
+			f->R.rax = (uint64_t)syscall_write (f, (int)f->R.rdi, (const void*)f->R.rsi, (unsigned)f->R.rdx);
 			break;
 		case SYS_SEEK:
 			syscall_seek ((int)f->R.rdi, (unsigned)f->R.rsi);
@@ -177,7 +178,7 @@ syscall_fork (const char *thr_name, struct intr_frame *f) {
 
 	if (thr_name == NULL)
 		return -1;
-	check_mem_space_read (thr_name, 0, true);
+	check_mem_space_read (f, thr_name, 0, true);
 	return process_fork (thr_name, f);
 }
 
@@ -188,11 +189,13 @@ syscall_fork (const char *thr_name, struct intr_frame *f) {
  * change the name of the thread that called exec. Please note that file
  * descriptors remain open across an exec call. */
 static void
-syscall_exec (const char *cmd_line) {
+syscall_exec (struct intr_frame *f, const char *cmd_line) {
 	struct thread *curr = thread_current ();
 	char *cmd_line_copy;
 
-	check_mem_space_read (cmd_line, 0, true);
+	ASSERT (f);
+
+	check_mem_space_read (f, cmd_line, 0, true);
 
 	/* Close current executable. */
 	ASSERT (curr->executable);
@@ -236,8 +239,10 @@ syscall_wait (int pid) {
 * not open it: opening the new file is a separate operation which would
 * require a open system call. */
 static bool
-syscall_create (const char *file, unsigned initial_size) {
-	check_mem_space_read (file, 0, true);
+syscall_create (struct intr_frame *f, const char *file, unsigned initial_size) {
+	ASSERT (f);
+
+	check_mem_space_read (f, file, 0, true);
 	return filesys_create(file, initial_size);
 }
 
@@ -245,10 +250,12 @@ syscall_create (const char *file, unsigned initial_size) {
  * otherwise. A file may be removed regardless of whether it is open or
  * closed, and removing an open file does not close it. */
 static bool
-syscall_remove (const char *file) {
+syscall_remove (struct intr_frame *f, const char *file) {
+	ASSERT (f);
+
 	if (file == NULL)
 		return false;
-	check_mem_space_read (file, 0, true);
+	check_mem_space_read (f, file, 0, true);
 	return filesys_remove(file);
 }
 
@@ -265,12 +272,14 @@ syscall_remove (const char *file) {
  * file descriptors for a single file are closed independently in separate
  * calls to close and they do not share a file position. */
 static int
-syscall_open (const char *file) {
+syscall_open (struct intr_frame *frame, const char *file) {
 	struct file *f;
+
+	ASSERT (frame);
 
 	if (file == NULL)
 		return -1;
-	check_mem_space_read (file, 0, true);
+	check_mem_space_read (frame, file, 0, true);
 	f = filesys_open (file);
 	if (f == NULL)
 		return -1;
@@ -362,13 +371,15 @@ syscall_filesize (int fd) {
  * could not be read (due to a condition other than end of file). fd 0
  * reads from the keyboard using input_getc(). */
 static int
-syscall_read (int fd, void *buffer, unsigned length) {
+syscall_read (struct intr_frame *f, int fd, void *buffer, unsigned length) {
 	struct fd_table *fd_t = &thread_current ()->fd_t;
 	struct file_descriptor *file_descriptor;
 	uint8_t *ui8buffer = (uint8_t*)buffer;
 	unsigned bytes_read = 0, bytes_left = length;
 
-	check_mem_space_write (buffer, length);
+	ASSERT (f);
+
+	check_mem_space_write (f, buffer, length);
 
 	ASSERT (fd_t->table);
 	ASSERT (fd_t->size <= MAX_FD + 1);
@@ -412,12 +423,14 @@ syscall_read (int fd, void *buffer, unsigned length) {
 * file growth is not implemented by the basic file system.
 * fd 1 writes to the console (stdout). */
 static int
-syscall_write (int fd, const void *buffer, unsigned length) {
+syscall_write (struct intr_frame *f, int fd, const void *buffer, unsigned length) {
 	struct fd_table *fd_t = &thread_current ()->fd_t;
 	struct file_descriptor *file_descriptor;
 	unsigned bytes_written, bytes_left = length;
 
-	check_mem_space_read (buffer, length, false);
+	ASSERT (f);
+
+	check_mem_space_read (f, buffer, length, false);
 
 	ASSERT (fd_t->table);
 	ASSERT (fd_t->size <= MAX_FD + 1);
@@ -664,10 +677,10 @@ syscall_mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 	ASSERT (fd_t->size <= MAX_FD + 1);
 
 	//check fail conditions
-	if (length == 0 || !vm_is_page_addr(addr) || !is_user_vaddr (addr) || pg_ofs(offset) != 0
+	if (length == 0 || !vm_is_page_addr(addr) || !is_user_vaddr (addr)
+			|| !is_user_vaddr (addr + length)	|| pg_ofs(offset) != 0
 			|| fd < 0 || fd > MAX_FD)
 		return NULL;
-
 
 	file_descriptor = &fd_t->table[fd];
 	if (file_descriptor->fd_t == FDT_STDIN || file_descriptor->fd_t == FDT_STDOUT)
@@ -705,9 +718,10 @@ syscall_munmap (void *addr) {
 	if (!vm_is_page_addr (addr))
 		return;
 	page = spt_find_page (&thread_current ()->spt, addr);
-	if (!page || VM_TYPE (page->operations->type) != VM_FILE)
+	if (!page || VM_TYPE (page->operations->type) != VM_FILE
+			|| page->file.page_cnt < 1)
 		return;
-	do_munmap (addr);
+	do_munmap (addr, false);
 }
 
 
@@ -718,27 +732,29 @@ syscall_munmap (void *addr) {
  * If there is a memory violation (or ADDR is NULL), the process will be
  * terminated with exit status of -1, otherwise nothing happens. */
 static void
-check_mem_space_read (const void *addr_, const size_t size, const bool is_str) {
+check_mem_space_read (struct intr_frame *f, const void *addr_, const size_t size, const bool is_str) {
 	uint8_t *addr = (uint8_t*)addr_;
+
+	ASSERT (f);
 
 	if (addr == NULL)
 		thread_exit (-1);
 	if (is_str) { /* String assumed. */
 		ASSERT (size == 0);
 		/* Check the first byte pointed to by ADDR. */
-		if (!valid_user_addr (addr) || get_user (addr) == -1)
+		if (!valid_user_addr (f, addr, false) || get_user (addr) == -1)
 			thread_exit (-1);
 		/* Check each byte of memory starting at ADDR+1 until NULL is found. */
 		while (*addr) {
 			addr++;
-			if (!valid_user_addr (addr) || get_user (addr) == -1)
+			if (!valid_user_addr (f, addr, false) || get_user (addr) == -1)
 				thread_exit (-1);
 		}
 	}
 	else {
 		/* Check the SIZE-bytes of memory starting at ADDR. */
 		for (size_t i = 0; i < size; i++) {
-			if (!valid_user_addr (addr) || get_user (addr) == -1)
+			if (!valid_user_addr (f, addr, false) || get_user (addr) == -1)
 				thread_exit (-1);
 			addr++;
 		}
@@ -765,14 +781,16 @@ get_user (const uint8_t *uaddr) {
  * terminated with exit status of -1, otherwise nothing happens.
  * The space will be set to 0s on success. */
 static void
-check_mem_space_write (const void *addr_, const size_t size) {
+check_mem_space_write (struct intr_frame *f, const void *addr_, const size_t size) {
 	uint8_t *addr = (uint8_t*)addr_;
+
+	ASSERT (f);
 
 	if (addr == NULL)
 		thread_exit (-1);
 	/* Check the SIZE-bytes of memory starting at ADDR. */
 	for (size_t i = 0; i < size; i++) {
-		if (!valid_user_addr (addr) || !put_user (addr, 0))
+		if (!valid_user_addr (f, addr, true) || !put_user (addr, 0))
 			thread_exit (-1);
 		addr++;
 	}
@@ -796,8 +814,19 @@ put_user (uint8_t *udst, uint8_t byte) {
 	 kernel page. Returns TRUE if these two conditions are true, FALSE
 	 otherwise. */
 static bool
-valid_user_addr (const uint8_t *addr_) {
+valid_user_addr (struct intr_frame *f, const uint8_t *addr_, bool write) {
 	void *addr = (void*)addr_;
 	struct thread *curr = thread_current ();
-	return (is_user_vaddr(addr) && spt_find_page (&curr->spt, addr));
+	struct page *page = spt_find_page (&curr->spt, addr);
+
+	ASSERT (f);
+
+	if (is_user_vaddr (addr)) {
+		if (!page)
+			return vm_try_handle_fault (f, addr, true, write, true);
+		return (!write || page->writable)
+				&& (pml4_get_page (curr->pml4, page->va)
+						|| vm_claim_page (page->va, &curr->spt));
+	}
+	return false;
 }

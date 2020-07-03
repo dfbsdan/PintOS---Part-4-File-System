@@ -6,7 +6,6 @@
 #include "devices/disk.h"
 #include <hash.h>
 #include <bitmap.h>
-#include <stdio.h>//////////////////////////////////////////////////////////////TEMPORAL
 
 /* Number of disk sectors that make up a page. */
 #define SECTORS_PER_PAGE 8
@@ -52,7 +51,7 @@ swap_hash_func (const struct hash_elem *e, void *aux UNUSED) {
 
 	page = hash_entry (e, struct anon_page, swap_elem)->page;
 	ASSERT (VM_TYPE (page->operations->type) == VM_ANON);
-	ASSERT (vm_is_page_addr (page->va)); /////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	return hash_bytes (&page, sizeof (page));
 }
 
@@ -70,8 +69,8 @@ swap_less_func (const struct hash_elem *a, const struct hash_elem *b,
 	b_page = hash_entry (b, struct anon_page, swap_elem)->page;
 	ASSERT (VM_TYPE (a_page->operations->type) == VM_ANON);
 	ASSERT (VM_TYPE (b_page->operations->type) == VM_ANON);
-	ASSERT (vm_is_page_addr (a_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
-	ASSERT (vm_is_page_addr (b_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (a_page->va));
+	ASSERT (vm_is_page_addr (b_page->va));
 	return a_page < b_page;
 }
 
@@ -102,7 +101,7 @@ vm_anon_init (void) {
 bool
 anon_initializer (struct page *page, enum vm_type type, void *kva) {
 	ASSERT (page && kva);
-	ASSERT (vm_is_page_addr (page->va));//////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	ASSERT (VM_TYPE (type) == VM_ANON);
 	ASSERT (page->frame && page->frame->kva == kva);
 
@@ -130,7 +129,7 @@ anon_swap_in (struct page *page, void *kva) {
 
 	ASSERT (page);
 	ASSERT (VM_TYPE (page->operations->type) == VM_ANON);
-	ASSERT (vm_is_page_addr (kva));///////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (kva));
 	anon_page = &page->anon;
 	ASSERT (anon_page->page == page);
 	ASSERT (thread_is_user (page->t)
@@ -139,7 +138,7 @@ anon_swap_in (struct page *page, void *kva) {
 	ASSERT (hash_find (&swap_t.table, &anon_page->swap_elem));
 	ASSERT (bitmap_test (swap_t.bitmap, anon_page->idx));
 	swap_check_table ();
-	
+
 	/* Read from disk. */
 	sector = index_to_sector (anon_page->idx);
 	for (unsigned i = 0; i < SECTORS_PER_PAGE; i++)
@@ -160,7 +159,7 @@ anon_swap_out (struct page *page) {
 	ASSERT (page && page->frame);
 	ASSERT (VM_TYPE (page->operations->type) == VM_ANON);
 	kva = page->frame->kva;
-	ASSERT (vm_is_page_addr (kva));///////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (kva));
 	anon_page = &page->anon;
 	ASSERT (anon_page->page == page);
 	ASSERT (thread_is_user (page->t)
@@ -190,7 +189,7 @@ anon_destroy (struct page *page) {
 	struct anon_page *anon_page;
 
 	ASSERT (page);
-	ASSERT (vm_is_page_addr (page->va));//////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	ASSERT (thread_is_user (page->t));
 	ASSERT (!spt_find_page (&page->t->spt, page->va));
 	ASSERT (VM_TYPE (page->operations->type) == VM_ANON);

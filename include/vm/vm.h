@@ -87,7 +87,7 @@ struct supplemental_page_table {
 	struct hash table;
 };
 
-bool vm_is_page_addr (void *va);
+bool vm_is_page_addr (const void *va);
 
 #include "threads/thread.h"
 bool supplemental_page_table_init (struct supplemental_page_table *spt);
