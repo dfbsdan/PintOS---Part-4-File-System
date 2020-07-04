@@ -168,8 +168,8 @@ dir_add (struct dir *dir, const char *name, cluster_t inode_clst) {
 	e.inode_clst = inode_clst;
 	success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 	//////////////////////////////////////////////////////////////////////////////TESTING
-	if (!success)
-		PANIC ("dir_add: ERROR: write at inode");
+	if (!success){
+		PANIC ("dir_add: ERROR: write at inode");}
 	/////////////////////////////////////////////////////////////////////////////////////
 
 done:
