@@ -26,9 +26,9 @@ void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
-#ifdef EFILESYS  /* For project 4 */
-	page_cache_init ();
-#endif
+//#ifdef EFILESYS  /* For project 4 */
+//	page_cache_init ();
+//#endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */

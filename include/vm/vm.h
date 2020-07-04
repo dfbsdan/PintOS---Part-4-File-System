@@ -12,7 +12,7 @@ enum vm_type {
 	/* page that realated to the file */
 	VM_FILE = 2,
 	/* page that hold the page cache, for project 4 */
-	VM_PAGE_CACHE = 3,
+//	VM_PAGE_CACHE = 3,
 
 	/* Bit flags to store state */
 
@@ -27,9 +27,9 @@ enum vm_type {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
-#ifdef EFILESYS
-#include "filesys/page_cache.h"
-#endif
+//#ifdef EFILESYS
+//#include "filesys/page_cache.h"
+//#endif
 
 struct page_operations;
 struct thread;
@@ -54,9 +54,9 @@ struct page {
 		struct uninit_page uninit;
 		struct anon_page anon;
 		struct file_page file;
-#ifdef EFILESYS
-		struct page_cache page_cache;
-#endif
+//#ifdef EFILESYS
+//		struct page_cache page_cache;
+//#endif
 	};
 };
 
