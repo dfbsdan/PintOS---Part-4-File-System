@@ -243,16 +243,17 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 }
  /* Grows the given INODE until OFFSET can be found inside it. */
 static bool
-inode_grow (struct inode *inode, off_t offset) {
+inode_grow (struct inode *inode, off_t offsetm, off_t size) {
 	size_t bytes_left, new_bytes;
 	off_t clst_offset, *data_len;
 	cluster_t clst;
 
 	ASSERT (inode);
 	data_len = &inode->data.length;
-	ASSERT (*data_len > 0 && offset >= *data_len);
+	ASSERT (offset >= *data_len);
+	ASSERT (size >= 1);
 
-	bytes_left = offset - *data_len + 1;
+	bytes_left = (size_t)offset + size - *data_len;
 	clst_offset = *data_len % DISK_SECTOR_SIZE;
 	/* Fill current cluster completely. */
 	new_bytes = (DISK_SECTOR_SIZE - clst_offset < bytes_left)?
@@ -290,7 +291,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		/* Sector to write, starting byte offset within sector. */
 		cluster_t clst = byte_to_cluster (inode, offset);
 		if (!clst) {
-			if (!inode_grow (inode, offset))
+			if (!inode_grow (inode, offset, size))
 				break;
 			clst = byte_to_cluster (inode, offset);
 		}
