@@ -498,6 +498,9 @@ process_exit (int status) {
 		ASSERT (curr->executable == NULL);
 		ASSERT (curr->fd_t.table == NULL);
 	}
+
+	if (curr->curr_dir) dir_close(curr->curr_dir);
+
 	/* Destroy unfreed information of finished child processes (this occurs
 	 * when wait() is not called on a pid). */
 	while (!list_empty (&curr->terminated_children_st)) {
@@ -514,6 +517,8 @@ process_exit (int status) {
 			child->parent = NULL;
 		}
 	}
+
+
 	intr_set_level (old_level);
 	process_cleanup (true);
 }
