@@ -44,13 +44,12 @@ byte_to_sector (const struct inode *inode, off_t pos) {
 	cluster_t clst;
 
 	ASSERT (inode != NULL);
+	//////////////////////////////////////////////////////////////////////////////TESTING
+	ASSERT (pos >= 0);
+	/////////////////////////////////////////////////////////////////////////////////////
 
 	if (pos < inode->data.length) {
 		clst = inode->data.start;
-		/* Set pos from start of data. */
-		if (pos < 0)
-			pos += inode->data.start;
-		ASSERT (pos >= 0);
 		for (int i = 0; i < pos / DISK_SECTOR_SIZE; i++) {
 			clst = fat_get (clst);
 			ASSERT (clst != EOChain);
