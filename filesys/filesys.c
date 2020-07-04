@@ -53,14 +53,14 @@ filesys_create (const char *name, off_t initial_size) {
 	//		&& dir_add (dir, name, inode_clst));
 	//////////////////////////////////////////////////////////////////////////////TESTING
 	bool success = false;
-	if (!dir)
-		ASSERT (0);
-	else if (!(inode_clst = fat_create_chain (0)))
-		ASSERT (0);
-	else if (!inode_create (inode_clst, initial_size))
-		ASSERT (0);
-	else if (!dir_add (dir, name, inode_clst))
-		ASSERT (0);
+	if (!dir){
+		ASSERT (0);}
+	else if (!(inode_clst = fat_create_chain (0))){
+		ASSERT (0);}
+	else if (!inode_create (inode_clst, initial_size)){
+		ASSERT (0);}
+	else if (!dir_add (dir, name, inode_clst)){
+		ASSERT (0);}
 	else
 		success = true;
 	/////////////////////////////////////////////////////////////////////////////////////
