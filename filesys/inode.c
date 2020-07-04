@@ -243,7 +243,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 }
  /* Grows the given INODE until OFFSET can be found inside it. */
 static bool
-inode_grow (struct inode *inode, off_t offsetm, off_t size) {
+inode_grow (struct inode *inode, off_t offset, off_t size) {
 	size_t bytes_left, new_bytes;
 	off_t clst_offset, *data_len;
 	cluster_t clst;
