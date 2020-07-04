@@ -47,10 +47,23 @@ filesys_create (const char *name, off_t initial_size) {
 	cluster_t inode_clst;
 
 	struct dir *dir = dir_open_root ();
-	bool success = (dir != NULL
-			&& (inode_clst = fat_create_chain (0))
-			&& inode_create (inode_clst, initial_size)
-			&& dir_add (dir, name, inode_clst));
+	//bool success = (dir != NULL
+	//		&& (inode_clst = fat_create_chain (0))
+	//		&& inode_create (inode_clst, initial_size)
+	//		&& dir_add (dir, name, inode_clst));
+	//////////////////////////////////////////////////////////////////////////////TESTING
+	bool success = false;
+	if (!dir)
+		printf("filesys_create: ERROR: root opening\n");
+	else if (!(inode_clst = fat_create_chain (0)))
+		printf("filesys_create: ERROR: inode cluster creation\n");
+	else if (!inode_create (inode_clst, initial_size))
+		printf("filesys_create: ERROR: inode creation\n");
+	else if (!dir_add (dir, name, inode_clst))
+		printf("filesys_create: ERROR: addition to root\n");
+	else
+		success = true;
+	/////////////////////////////////////////////////////////////////////////////////////
 	if (!success && inode_clst != 0)
 		fat_remove_chain (inode_clst, 0);
 	dir_close (dir);
