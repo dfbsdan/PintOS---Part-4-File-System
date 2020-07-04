@@ -262,6 +262,7 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	bytes_left -= new_bytes;
 	/* Expand inode until OFFSET can be mapped. */
 	clst = inode->data.start;
+	ASSERT (clst);////////////////////////////////////////////////////////////////TESTING LINE
 	while (bytes_left && (clst = fat_create_chain (clst))) {
 		static char zeros[DISK_SECTOR_SIZE];
 		disk_write (filesys_disk, cluster_to_sector (clst), zeros);
