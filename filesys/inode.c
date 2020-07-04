@@ -36,7 +36,7 @@ struct inode {
 };
 
 /* Returns the cluster that contains byte offset POS within INODE.
- * Returns -1 if INODE does not contain data for a byte at offset
+ * Returns 0 if INODE does not contain data for a byte at offset
  * POS. */
 static cluster_t
 byte_to_cluster (const struct inode *inode, off_t pos) {
@@ -55,7 +55,7 @@ byte_to_cluster (const struct inode *inode, off_t pos) {
 		return clst;
 	}
 	else
-		return -1;
+		return 0;
 }
 
 /* List of open inodes, so that opening a single inode twice
