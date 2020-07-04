@@ -245,26 +245,34 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 static bool
 inode_grow (struct inode *inode, off_t offset, off_t size) {
 	size_t bytes_left, new_bytes;
-	off_t clst_offset, *data_len;
+	off_t *data_len;
 	cluster_t clst;
+	static char zeros[DISK_SECTOR_SIZE];
 
 	ASSERT (inode);
 	data_len = &inode->data.length;
 	ASSERT (offset >= *data_len);
 	ASSERT (size >= 1);
 
+	/* Make sure there is at least one cluster allocated. */
+	if (!inode->data.start) {
+		ASSERT (*data_len == 0);
+		if (!(inode->data.start = fat_create_chain (0)))
+			return false;
+		disk_write (filesys_disk, cluster_to_sector (inode->data.start), zeros);
+	}
+
 	bytes_left = (size_t)offset + size - *data_len;
-	clst_offset = *data_len % DISK_SECTOR_SIZE;
+	offset = *data_len % DISK_SECTOR_SIZE;
 	/* Fill current cluster completely. */
-	new_bytes = (DISK_SECTOR_SIZE - clst_offset < bytes_left)?
-			DISK_SECTOR_SIZE - clst_offset: bytes_left;
+	new_bytes = (DISK_SECTOR_SIZE - offset < bytes_left)?
+			DISK_SECTOR_SIZE - offset: bytes_left;
 	*data_len += new_bytes;
 	bytes_left -= new_bytes;
 	/* Expand inode until OFFSET can be mapped. */
 	clst = inode->data.start;
-	ASSERT (clst);////////////////////////////////////////////////////////////////TESTING LINE
+	ASSERT (clst);
 	while (bytes_left && (clst = fat_create_chain (clst))) {
-		static char zeros[DISK_SECTOR_SIZE];
 		disk_write (filesys_disk, cluster_to_sector (clst), zeros);
 		new_bytes = (DISK_SECTOR_SIZE < bytes_left)? DISK_SECTOR_SIZE: bytes_left;
 		*data_len += new_bytes;
