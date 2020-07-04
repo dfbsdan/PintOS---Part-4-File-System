@@ -38,7 +38,6 @@ filesys_init (bool format) {
 		do_format ();
 
 	free_map_open ();
-	thread_current()->curr_dir = dir_open_root();
 #endif
 }
 
@@ -64,7 +63,7 @@ filesys_create (const char *name, off_t initial_size) {
 	struct dir *dir = dir_open_root ();
 	bool success = (dir != NULL
 			&& free_map_allocate (1, &inode_sector)
-			&& inode_create (inode_sector, initial_size, 0)
+			&& inode_create (inode_sector, initial_size)
 			&& dir_add (dir, name, inode_sector));
 	if (!success && inode_sector != 0)
 		free_map_release (inode_sector, 1);
@@ -120,8 +119,4 @@ do_format (void) {
 #endif
 
 	printf ("done.\n");
-}
-
-struct dir* parse_path(char *path_name, char *file_name){
-	struct dir *dir;
 }

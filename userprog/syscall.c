@@ -50,7 +50,6 @@ static void syscall_close (int fd);
 static int syscall_dup2 (int oldfd, int newfd);
 static void *syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void syscall_munmap (void *addr);
-static bool syscall_isdir(int fd);
 static int create_file_descriptor (struct file *file);
 static void check_mem_space_read (const void *addr_, const size_t size, const bool is_str);
 static void check_mem_space_write (const void *addr_, const size_t size);
@@ -132,12 +131,9 @@ syscall_handler (struct intr_frame *f) {
 
 		/* Project 4 only. */
 		//case SYS_CHDIR:			/* Change the current directory. */
-
 		//case SYS_MKDIR:			/* Create a directory. */
 		//case SYS_READDIR:		/* Reads a directory entry. */
-		case SYS_ISDIR:			/* Tests if a fd represents a directory. */
-			syscall_isdir((int)f->R.rdi);
-
+		//case SYS_ISDIR:			/* Tests if a fd represents a directory. */
 		//case SYS_INUMBER:		/* Returns the inode number for a fd. */
 		default:
 			ASSERT (0); //Unknown syscall (could not be implemented yet)
@@ -712,16 +708,6 @@ syscall_munmap (void *addr) {
 	if (!page || VM_TYPE (page->operations->type) != VM_FILE)
 		return;
 	do_munmap (addr);
-}
-
-static bool
-syscall_isdir(int fd){
-	struct fd_table *fd_t = &thread_current ()->fd_t;
-	struct file_descriptor *file_descriptor;
-
-	file_descriptor = &fd_t->table[fd];
-	return inode_is_dir(file_descriptor->fd_file->inode);
-
 }
 
 

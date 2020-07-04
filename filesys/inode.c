@@ -16,8 +16,7 @@ struct inode_disk {
 	disk_sector_t start;                /* First data sector. */
 	off_t length;                       /* File size in bytes. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t is_dir; /* 0 if file 1 if dir*/
-	uint32_t unused[124];               /* Not used. */
+	uint32_t unused[125];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -66,7 +65,7 @@ inode_init (void) {
  * Returns true if successful.
  * Returns false if memory or disk allocation fails. */
 bool
-inode_create (disk_sector_t sector, off_t length, uint32_t is_dir) {
+inode_create (disk_sector_t sector, off_t length) {
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
@@ -81,7 +80,6 @@ inode_create (disk_sector_t sector, off_t length, uint32_t is_dir) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
 		disk_inode->magic = INODE_MAGIC;
-		disk_inode->is_dir = is_dir;
 		if (free_map_allocate (sectors, &disk_inode->start)) {
 			disk_write (filesys_disk, sector, disk_inode);
 			if (sectors > 0) {
@@ -319,12 +317,4 @@ int
 inode_open_cnt (const struct inode *inode) {
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	return inode->open_cnt;
-}
-
-bool inode_is_dir(const struct inode *inode) {
-	bool result;
-	struct inode_disk *on_disk = calloc(1, sizeof (struct inode_disk));
-	on_disk = inode->inode_disk;
-	result = on_disk->is_dir;
-	return result;
 }

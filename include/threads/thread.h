@@ -172,8 +172,6 @@ struct thread {
 	struct supplemental_page_table spt;
 #endif
 
-	struct dir *curr_dir;
-
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */
