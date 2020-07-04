@@ -4,7 +4,6 @@
 #include <round.h>
 #include <string.h>
 #include "filesys/filesys.h"
-#include "filesys/fat.h"
 #include "threads/malloc.h"
 
 /* Identifies an inode. */

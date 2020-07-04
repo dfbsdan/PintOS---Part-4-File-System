@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "filesys/file.h"
-#include "filesys/fat.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
