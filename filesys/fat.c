@@ -6,9 +6,6 @@
 #include <stdio.h>
 #include <string.h>
 
-#define data_start(FATBS) (1+((FATBS).fat_sectors))
-#define data_sectors(FATBS) (((FATBS).total_sectors) - (data_start(FATBS)))
-
 /* Should be less than DISK_SECTOR_SIZE */
 struct fat_boot {
 	unsigned int magic;
@@ -29,7 +26,7 @@ struct fat_fs {
 	struct lock write_lock;
 };
 
-static struct fat_fs *fat_fs;
+static struct fat_fs *fat_fs = NULL;
 
 void fat_boot_create (void);
 void fat_fs_init (void);
@@ -164,10 +161,15 @@ Also, you may want to initialize some other useful data in this function.
 
 void
 fat_fs_init (void) {
-	fat_fs->fat_length = data_sectors(fat_fs->bs);
-	fat_fs->data_start = data_start(fat_fs->bs);
-	lock_init(&fat_fs->write_lock);
-	/* TODO: Your code goes here. */
+	ASSERT (fat_fs);
+	ASSERT (fat_fs->bs.sectors_per_cluster == 1);
+	ASSERT (fat_fs->bs.fat_sectors < fat_fs->bs.total_sectors);
+
+	fat_fs->data_start = 1 + fat_fs->bs.fat_sectors;
+	fat_fs->fat_length = fat_fs->bs.total_sectors - fat_fs->data_start;
+	lock_init (&fat_fs->write_lock);
+	printf("fat_fs_init: total secs: %d, fat secs: %d, data start: %d, fat len: %d\n", fat_fs->bs.total_sectors, fat_fs->bs.fat_sectors, fat_fs->data_start, fat_fs->fat_length);
+	ASSERT (0); //TESTING
 }
 
 /*----------------------------------------------------------------------------*/
@@ -179,60 +181,82 @@ fat_fs_init (void) {
  * Returns 0 if fails to allocate a new cluster. */
 cluster_t
 fat_create_chain (cluster_t clst) {
-	lock_acquire(&fat_fs->write_lock);
 	cluster_t new_clst;
-	for (new_clst=1; new_clst<=fat_fs->fat_length; new_clst++){
-		if (fat_fs->fat[new_clst] == 0){
-			fat_fs->fat[new_clst] = 0x0FFFFFFF;
+
+	ASSERT (clst < fat_fs->fat_length);
+
+	lock_acquire (&fat_fs->write_lock);
+	/* Look for an empty cluster. */
+	for (new_clst = ROOT_DIR_CLUSTER + 1; new_clst < fat_fs->fat_length; new_clst++) {
+		if (fat_fs->fat[new_clst] == 0) {
+			fat_fs->fat[new_clst] = EOChain;
 			break;
 		}
 	}
-	if (clst != 0){
-		fat_fs->fat[clst] = new_clst;
+	ASSERT (new_clst <= fat_fs->fat_length);
+	if (new_clst == fat_fs->fat_length) {
+		/* No empty cluster found. */
+		lock_release (&fat_fs->write_lock);
+		return 0;
 	}
-	lock_release(&fat_fs->write_lock);
+	if (clst != 0)
+		/* Add to chain. */
+		fat_fs->fat[clst] = new_clst;
+	lock_release (&fat_fs->write_lock);
 	return new_clst;
 }
 
-/* Remove the chain of clusters starting from CLST.
- * If PCLST is 0, assume CLST as the start of the chain. */
+/* Starting from CLST, remove clusters from a chain. PCLST should be the direct
+ * previous cluster in the chain. This means, after the execution of this
+ * function, PCLST should be the last element of the updated chain. If CLST is
+ * the first element in the chain, PCLST should be 0. */
 void
 fat_remove_chain (cluster_t clst, cluster_t pclst) {
-	/* TODO: Your code goes here. */
-	lock_acquire(&fat_fs->write_lock);
-	cluster_t pointer = clst;
-	if (pclst != 0){
-		fat_fs->fat[pclst] = 0x0FFFFFFF;
+	cluster_t next;
+
+	ASSERT (clst && clst < fat_fs->fat_length);
+	ASSERT (pclst < fat_fs->fat_length);
+
+	lock_acquire (&fat_fs->write_lock);
+	if (pclst != 0) {
+		ASSERT (fat_fs->fat[pclst] == clst);
+		fat_fs->fat[pclst] = EOChain;
 	}
-	while (fat_fs->fat[clst] != 0x0FFFFFFF){
-		pointer = fat_fs->fat[clst];
+	while (fat_fs->fat[clst] != EOChain) {
+		next = fat_fs->fat[clst];
+		ASSERT (next && next < fat_fs->fat_length);
 		fat_fs->fat[clst] = 0;
-		clst = pointer;
+		clst = next;
 	}
-	lock_release(&fat_fs->write_lock);
+	fat_fs->fat[clst] = 0; //EOChain
+	lock_release (&fat_fs->write_lock);
 }
 
-/* Update a value in the FAT table. */
+/* Update FAT entry pointed by cluster number CLST to VAL. Since each entry in
+ * FAT points the next cluster in a chain (if exist; otherwise EOChain), this
+ * could be used to update connectivity. */
 void
 fat_put (cluster_t clst, cluster_t val) {
-	/* TODO: Your code goes here. */
+	ASSERT (clst && clst < fat_fs->fat_length);
+	ASSERT (val && (val == EOChain || val < fat_fs->fat_length));
 
-	lock_acquire(&fat_fs->write_lock);
+	lock_acquire (&fat_fs->write_lock);
 	fat_fs->fat[clst] = val;
-	lock_release(&fat_fs->write_lock);
+	lock_release (&fat_fs->write_lock);
 }
 
 /* Fetch a value in the FAT table. */
 cluster_t
 fat_get (cluster_t clst) {
-	/* TODO: Your code goes here. */
-	return fat_fs->fat[clst];
+	ASSERT (clst && clst < fat_fs->fat_length);
+	cluster_t val = fat_fs->fat[clst];
+	ASSERT (val && (val == EOChain || val < fat_fs->fat_length));
+	return val;
 }
 
 /* Covert a cluster # to a sector number. */
 disk_sector_t
 cluster_to_sector (cluster_t clst) {
-	/* TODO: Your code goes here. */
-	disk_sector_t secnum = fat_fs->data_start+clst-1;
-	return secnum;
+	ASSERT (clst && clst < fat_fs->fat_length);
+	return fat_fs->data_start + clst - 1;
 }
