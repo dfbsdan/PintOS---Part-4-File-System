@@ -87,6 +87,10 @@ lookup (const struct dir *dir, const char *name,
 
 	for (ofs = 0; inode_read_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 			ofs += sizeof e)
+	//////////////////////////////////////////////////////////////////////////////TESTING
+	{
+		printf("lookup: file: %s, entry name: %s, in use: %d\n", name, e.name, e.in_use);
+	/////////////////////////////////////////////////////////////////////////////////////
 		if (e.in_use && !strcmp (name, e.name)) {
 			if (ep != NULL)
 				*ep = e;
@@ -94,6 +98,10 @@ lookup (const struct dir *dir, const char *name,
 				*ofsp = ofs;
 			return true;
 		}
+	//////////////////////////////////////////////////////////////////////////////TESTING
+	}
+	printf("lookup: ERROR: not found: %s\n", name);
+	/////////////////////////////////////////////////////////////////////////////////////
 	return false;
 }
 

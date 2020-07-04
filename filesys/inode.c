@@ -278,6 +278,7 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 		*data_len += new_bytes;
 		bytes_left -= new_bytes;
 	}
+	disk_write (filesys_disk, cluster_to_sector (inode->clst), &inode->data);
 	return bytes_left == 0;
 }
 
