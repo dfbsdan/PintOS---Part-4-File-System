@@ -197,9 +197,14 @@ fat_create_chain (cluster_t clst) {
 		lock_release (&fat_fs->write_lock);
 		return 0;
 	}
-	if (clst != 0)
-		/* Add to chain. */
+	if (clst != 0) {
+		/* Add to chain's end. */
+		while (fat_fs->fat[clst] != EOChain) {
+			clst = fat_fs->fat[clst];
+			ASSERT (clst && (clst < fat_fs->fat_length || clst == EOChain));
+		}
 		fat_fs->fat[clst] = new_clst;
+	}
 	lock_release (&fat_fs->write_lock);
 	return new_clst;
 }

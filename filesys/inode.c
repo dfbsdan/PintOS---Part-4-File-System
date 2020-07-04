@@ -241,6 +241,35 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 
 	return bytes_read;
 }
+ /* Grows the given INODE until OFFSET can be found inside it. */
+static bool
+inode_grow (struct inode *inode, off_t offset) {
+	size_t bytes_left, new_bytes;
+	off_t clst_offset, *data_len;
+	cluster_t clst;
+
+	ASSERT (inode);
+	data_len = &inode->data.length;
+	ASSERT (*data_len > 0 && offset >= *data_len);
+
+	bytes_left = offset - *data_len + 1;
+	clst_offset = *data_len % DISK_SECTOR_SIZE;
+	/* Fill current cluster completely. */
+	new_bytes = (DISK_SECTOR_SIZE - clst_offset < bytes_left)?
+			DISK_SECTOR_SIZE - clst_offset: bytes_left;
+	*data_len += new_bytes;
+	bytes_left -= new_bytes;
+	/* Expand inode until OFFSET can be mapped. */
+	clst = inode->data.start;
+	while (bytes_left && (clst = fat_create_chain (clst))) {
+		static char zeros[DISK_SECTOR_SIZE];
+		disk_write (filesys_disk, cluster_to_sector (clst), zeros);
+		new_bytes = (DISK_SECTOR_SIZE < bytes_left)? DISK_SECTOR_SIZE: bytes_left;
+		*data_len += new_bytes;
+		bytes_left -= new_bytes;
+	}
+	return bytes_left == 0;
+}
 
 /* Writes SIZE bytes from BUFFER into INODE, starting at OFFSET.
  * Returns the number of bytes actually written, which may be
@@ -260,8 +289,11 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	while (size > 0) {
 		/* Sector to write, starting byte offset within sector. */
 		cluster_t clst = byte_to_cluster (inode, offset);
-		if (!clst)
-			break;
+		if (!clst) {
+			if (!inode_grow (inode, offset))
+				break;
+			clst = byte_to_cluster (inode, offset);
+		}
 		ASSERT (fat_get (clst));
 		int sector_ofs = offset % DISK_SECTOR_SIZE;
 
