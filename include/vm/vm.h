@@ -12,7 +12,7 @@ enum vm_type {
 	/* page that realated to the file */
 	VM_FILE = 2,
 	/* page that hold the page cache, for project 4 */
-//	VM_PAGE_CACHE = 3,
+	VM_PAGE_CACHE = 3,
 
 	/* Bit flags to store state */
 
