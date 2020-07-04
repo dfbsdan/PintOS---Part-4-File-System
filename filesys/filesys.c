@@ -50,7 +50,12 @@ filesys_create (const char *name, off_t initial_size) {
 	bool success = (dir != NULL
 			&& (inode_clst = fat_create_chain (0))
 			&& inode_create (inode_clst, initial_size)
-			&& dir_add (dir, name, inode_clst));
+	//		&& dir_add (dir, name, inode_clst));
+	//////////////////////////////////////////////////////////////////////////////TESTING
+	);
+	if (success && !dir_add (dir, name, inode_clst))
+		ASSERT (0);
+	/////////////////////////////////////////////////////////////////////////////////////
 	if (!success && inode_clst != 0)
 		fat_remove_chain (inode_clst, 0);
 	dir_close (dir);
