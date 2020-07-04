@@ -31,6 +31,7 @@ void fat_remove_chain (
     cluster_t clst, /* Cluster # to be removed */
     cluster_t pclst /* Previous cluster of clst, 0: clst is the start of chain */
 );
+bool fat_allocate (size_t cnt, cluster_t *clstp);
 cluster_t fat_get (cluster_t clst);
 void fat_put (cluster_t clst, cluster_t val);
 disk_sector_t cluster_to_sector (cluster_t clst);

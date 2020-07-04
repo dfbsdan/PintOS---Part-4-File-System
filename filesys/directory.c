@@ -14,16 +14,16 @@ struct dir {
 
 /* A single directory entry. */
 struct dir_entry {
-	disk_sector_t inode_sector;         /* Sector number of header. */
+	cluster_t inode_clst;         			/* Cluster number of header. */
 	char name[NAME_MAX + 1];            /* Null terminated file name. */
 	bool in_use;                        /* In use or free? */
 };
 
 /* Creates a directory with space for ENTRY_CNT entries in the
- * given SECTOR.  Returns true if successful, false on failure. */
+ * given cluster CLST.  Returns true if successful, false on failure. */
 bool
-dir_create (disk_sector_t sector, size_t entry_cnt) {
-	return inode_create (sector, entry_cnt * sizeof (struct dir_entry));
+dir_create (cluster_t clst, size_t entry_cnt) {
+	return inode_create (clst, entry_cnt * sizeof (struct dir_entry));
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -46,7 +46,7 @@ dir_open (struct inode *inode) {
  * Return true if successful, false on failure. */
 struct dir *
 dir_open_root (void) {
-	return dir_open (inode_open (ROOT_DIR_SECTOR));
+	return dir_open (inode_open (ROOT_DIR_CLUSTER));
 }
 
 /* Opens and returns a new directory for the same inode as DIR.
@@ -110,7 +110,7 @@ dir_lookup (const struct dir *dir, const char *name,
 	ASSERT (name != NULL);
 
 	if (lookup (dir, name, &e, NULL))
-		*inode = inode_open (e.inode_sector);
+		*inode = inode_open (e.inode_clst);
 	else
 		*inode = NULL;
 
@@ -118,13 +118,13 @@ dir_lookup (const struct dir *dir, const char *name,
 }
 
 /* Adds a file named NAME to DIR, which must not already contain a
- * file by that name.  The file's inode is in sector
- * INODE_SECTOR.
+ * file by that name.  The file's inode is in cluster
+ * INODE_CLST.
  * Returns true if successful, false on failure.
  * Fails if NAME is invalid (i.e. too long) or a disk or memory
  * error occurs. */
 bool
-dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
+dir_add (struct dir *dir, const char *name, cluster_t inode_clst) {
 	struct dir_entry e;
 	off_t ofs;
 	bool success = false;
@@ -155,7 +155,7 @@ dir_add (struct dir *dir, const char *name, disk_sector_t inode_sector) {
 	/* Write slot. */
 	e.in_use = true;
 	strlcpy (e.name, name, sizeof e.name);
-	e.inode_sector = inode_sector;
+	e.inode_clst = inode_clst;
 	success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
 
 done:
@@ -180,7 +180,7 @@ dir_remove (struct dir *dir, const char *name) {
 		goto done;
 
 	/* Open inode. */
-	inode = inode_open (e.inode_sector);
+	inode = inode_open (e.inode_clst);
 	if (inode == NULL)
 		goto done;
 

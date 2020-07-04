@@ -231,6 +231,31 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	lock_release (&fat_fs->write_lock);
 }
 
+/* Allocates CNT linked clusters from the FAT and stores
+ * the first into *CLSTP.
+ * Returns true if successful, false otherwise. */
+bool
+fat_allocate (size_t cnt, cluster_t *clstp) {
+	cluster_t clst;
+
+	ASSERT (clstp);
+
+	*clstp = fat_create_chain (0);
+	if (*clstp) {
+		clst = *clstp;
+		for (size_t i = 1; i < cnt; i++) {
+			clst = fat_create_chain (clst);
+			if (clst == 0) { //Error
+				fat_remove_chain (*clstp, 0);
+				*clstp = 0;
+				return false;
+			}
+		}
+		return true;
+	}
+	return false;
+}
+
 /* Update FAT entry pointed by cluster number CLST to VAL. Since each entry in
  * FAT points the next cluster in a chain (if exist; otherwise EOChain), this
  * could be used to update connectivity. */
