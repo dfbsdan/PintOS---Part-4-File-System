@@ -271,7 +271,7 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	bytes_left -= new_bytes;
 	/* Expand inode until OFFSET can be mapped. */
 	clst = inode->data.start;
-	ASSERT (clst);
+	ASSERT (fat_get (clst));
 	while (bytes_left && (clst = fat_create_chain (clst))) {
 		disk_write (filesys_disk, cluster_to_sector (clst), zeros);
 		new_bytes = (DISK_SECTOR_SIZE < bytes_left)? DISK_SECTOR_SIZE: bytes_left;
