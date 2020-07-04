@@ -3,7 +3,8 @@
 
 #include <stdbool.h>
 #include <stddef.h>
-#include "devices/disk.h"
+#include "filesys/fat.h"
+//#include "devices/disk.h"
 
 /* Maximum length of a file name component.
  * This is the traditional UNIX maximum length.
