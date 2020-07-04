@@ -51,6 +51,7 @@ byte_to_cluster (const struct inode *inode, off_t pos) {
 			clst = fat_get (clst);
 			ASSERT (clst != EOChain);
 		}
+		ASSERT (fat_get (clst));
 		return clst;
 	}
 	else
