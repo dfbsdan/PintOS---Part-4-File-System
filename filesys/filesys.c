@@ -54,13 +54,13 @@ filesys_create (const char *name, off_t initial_size) {
 	//////////////////////////////////////////////////////////////////////////////TESTING
 	bool success = false;
 	if (!dir)
-		printf("filesys_create: ERROR: root opening\n");
+		PANIC ("filesys_create: ERROR: root opening\n");
 	else if (!(inode_clst = fat_create_chain (0)))
-		printf("filesys_create: ERROR: inode cluster creation\n");
+		PANIC ("filesys_create: ERROR: inode cluster creation\n");
 	else if (!inode_create (inode_clst, initial_size))
-		printf("filesys_create: ERROR: inode creation\n");
+		PANIC("filesys_create: ERROR: inode creation\n");
 	else if (!dir_add (dir, name, inode_clst))
-		printf("filesys_create: ERROR: addition to root\n");
+		PANIC("filesys_create: ERROR: addition to root\n");
 	else
 		success = true;
 	/////////////////////////////////////////////////////////////////////////////////////

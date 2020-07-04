@@ -168,7 +168,6 @@ fat_fs_init (void) {
 	fat_fs->data_start = 1 + fat_fs->bs.fat_sectors;
 	fat_fs->fat_length = fat_fs->bs.total_sectors - fat_fs->data_start;
 	lock_init (&fat_fs->write_lock);
-	printf("fat_fs_init: total secs: %d, fat secs: %d, data start: %d, fat len: %d\n", fat_fs->bs.total_sectors, fat_fs->bs.fat_sectors, fat_fs->data_start, fat_fs->fat_length);
 }
 
 /*----------------------------------------------------------------------------*/
