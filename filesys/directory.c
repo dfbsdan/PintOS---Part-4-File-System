@@ -134,21 +134,11 @@ dir_add (struct dir *dir, const char *name, cluster_t inode_clst) {
 
 	/* Check NAME for validity. */
 	if (*name == '\0' || strlen (name) > NAME_MAX)
-		//return false;
-	//////////////////////////////////////////////////////////////////////////////TESTING
-	{
-		PANIC ("dir_add: ERROR: invalid name");
-	}
-	/////////////////////////////////////////////////////////////////////////////////////
+		return false;
 
 	/* Check that NAME is not in use. */
 	if (lookup (dir, name, NULL, NULL))
-		//goto done;
-	//////////////////////////////////////////////////////////////////////////////TESTING
-	{
-		PANIC ("dir_add: ERROR: lookup");
-	}
-	/////////////////////////////////////////////////////////////////////////////////////
+		goto done;
 
 	/* Set OFS to offset of free slot.
 	 * If there are no free slots, then it will be set to the
@@ -167,10 +157,6 @@ dir_add (struct dir *dir, const char *name, cluster_t inode_clst) {
 	strlcpy (e.name, name, sizeof e.name);
 	e.inode_clst = inode_clst;
 	success = inode_write_at (dir->inode, &e, sizeof e, ofs) == sizeof e;
-	//////////////////////////////////////////////////////////////////////////////TESTING
-	if (!success){
-		PANIC ("dir_add: ERROR: write at inode");}
-	/////////////////////////////////////////////////////////////////////////////////////
 
 done:
 	return success;
