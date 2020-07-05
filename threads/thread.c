@@ -250,13 +250,11 @@ thread_create (const char *name, int priority,
 		palloc_free_page (t);
 		return TID_ERROR;
 	}
-	if (curr->curr_dir) {
-		printf("thread_create: opening dir for: %s\n", name);///////////////////////TESTING LINE
+	if (curr->curr_dir)
 		t->curr_dir = dir_open (dir_get_inode (curr->curr_dir));
-	} else {
+	else {
 		ASSERT (curr == initial_thread);
-		printf("thread_create: opening root for: %s\n", name);//////////////////////TESTING LINE
-		t->curr_dir = (function != idle)?: dir_open_root (); NULL;
+		t->curr_dir = (function != idle)? dir_open_root (): NULL;
 	}
 	if (!t->curr_dir && function != idle)
 		return TID_ERROR;
