@@ -274,7 +274,6 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 
 	/* Make sure there is at least one cluster allocated. */
 	if (!inode->data.start) {
-		ASSERT (inode->clst == ROOT_DIR_CLUSTER);///////////////////////////////////TESTING LINE
 		ASSERT (*data_len == 0);
 		if (!(inode->data.start = fat_create_chain (0)))
 			return false;

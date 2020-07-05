@@ -235,16 +235,18 @@ fat_remove_chain (cluster_t clst, cluster_t pclst) {
 	lock_release (&fat_fs->write_lock);
 }
 
-/* Allocates CNT (at least 1) linked clusters from the FAT and stores
- * the first into *CLSTP.
+/* Allocates CNT linked clusters and stores the first into *CLSTP.
  * Returns true if successful, false otherwise. */
 bool
 fat_allocate (size_t cnt, cluster_t *clstp) {
 	cluster_t clst;
 
 	ASSERT (clstp);
-	ASSERT (cnt >= 1);////////////////////////////////////////////////////////////TESTING LINE: May have issues with current implementation
 
+	if (cnt == 0) {
+		*clstp = 0;
+		return true;
+	}
 	*clstp = fat_create_chain (0);
 	if (*clstp) {
 		clst = *clstp;
