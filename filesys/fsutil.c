@@ -36,7 +36,7 @@ fsutil_cat (char **argv) {
 	char *buffer;
 
 	printf ("Printing '%s' to the console...\n", file_name);
-	file = filesys_open (file_name);
+	file = filesys_open (file_name, NULL);
 	if (file == NULL)
 		PANIC ("%s: open failed", file_name);
 	buffer = palloc_get_page (PAL_ASSERT);
@@ -46,7 +46,7 @@ fsutil_cat (char **argv) {
 		if (n == 0)
 			break;
 
-		hex_dump (pos, buffer, n, true); 
+		hex_dump (pos, buffer, n, true);
 	}
 	palloc_free_page (buffer);
 	file_close (file);
@@ -58,7 +58,7 @@ fsutil_rm (char **argv) {
 	const char *file_name = argv[1];
 
 	printf ("Deleting '%s'...\n", file_name);
-	if (!filesys_remove (file_name))
+	if (!filesys_remove (file_name, NULL))
 		PANIC ("%s: delete failed\n", file_name);
 }
 
@@ -105,9 +105,9 @@ fsutil_put (char **argv) {
 		PANIC ("%s: invalid file size %d", file_name, size);
 
 	/* Create destination file. */
-	if (!filesys_create (file_name, size))
+	if (!filesys_create (file_name, size, NULL))
 		PANIC ("%s: create failed", file_name);
-	dst = filesys_open (file_name);
+	dst = filesys_open (file_name, NULL);
 	if (dst == NULL)
 		PANIC ("%s: open failed", file_name);
 
@@ -155,7 +155,7 @@ fsutil_get (char **argv) {
 		PANIC ("couldn't allocate buffer");
 
 	/* Open source file. */
-	src = filesys_open (file_name);
+	src = filesys_open (file_name, NULL);
 	if (src == NULL)
 		PANIC ("%s: open failed", file_name);
 	size = file_length (src);

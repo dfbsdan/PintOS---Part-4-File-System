@@ -5,6 +5,7 @@
 #include <list.h>
 #include <stdint.h>
 #include "threads/interrupt.h"
+#include "filesys/directory.h"
 #ifdef VM
 #include "vm/vm.h"
 #endif
@@ -18,24 +19,15 @@
 enum fd_status {FD_CLOSE, FD_OPEN};
 
 /* Allowed types of file descriptor. */
-enum fd_type {FDT_STDIN, FDT_STDOUT, FDT_OTHER};
+enum fd_type {FDT_STDIN, FDT_STDOUT, FDT_FILE, FDT_DIR, FDT_NONE};
 
 /* File descriptor structure. */
 struct file_descriptor {
-	/* Status of the file descriptor. */
-	enum fd_status fd_st;
-	/* Type of the file descriptor. If the fd is closed or open and
-		 associated with a file, this has to be FDT_OTHER, if open and not
-		 associated, either FDT_STDIN or FDT_STDOUT. */
-	enum fd_type fd_t;
-	/* File associated with the fd. If the fd is open, this has to be a
-		 valid file pointer unless its type is FDT_STDIN or FDT_STDOUT.
-		 If the fd is closed, FILE is always NULL */
-	struct file *fd_file;
-	/* Holds the indexes of open duplicated file descriptors (with dup2()). Shared
-		 by all those fds that point to the same file. By default, STDIN and STDOUT
-		 file descriptors hold a NULL pointer. */
-	uint8_t *dup_fds;
+	enum fd_status fd_st;		/* Open or closed fd. */
+	enum fd_type fd_t;			/* References stdin, stdout, a file, a dir, or none
+														(i.e. closed) */
+	struct file *fd_file; /* Pointer to open file. */
+	struct dir *fd_dir;		/* Pointer to open directory. */
 };
 
 /* Structure holding the file descriptors of a process. */
@@ -171,7 +163,7 @@ struct thread {
 	/* Table for whole virtual memory owned by thread. */
 	struct supplemental_page_table spt;
 #endif
-
+	struct dir *curr_dir;								/* Current working directory. */
 	/* Owned by thread.c. */
 	struct intr_frame tf;               /* Information for switching */
 	unsigned magic;                     /* Detects stack overflow. */

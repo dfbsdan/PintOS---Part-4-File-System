@@ -27,9 +27,9 @@ enum vm_type {
 #include "vm/uninit.h"
 #include "vm/anon.h"
 #include "vm/file.h"
-#ifdef EFILESYS
-#include "filesys/page_cache.h"
-#endif
+//#ifdef EFILESYS
+//#include "filesys/page_cache.h"
+//#endif
 
 struct page_operations;
 struct thread;
@@ -54,9 +54,9 @@ struct page {
 		struct uninit_page uninit;
 		struct anon_page anon;
 		struct file_page file;
-#ifdef EFILESYS
-		struct page_cache page_cache;
-#endif
+//#ifdef EFILESYS
+//		struct page_cache page_cache;
+//#endif
 	};
 };
 
@@ -87,7 +87,7 @@ struct supplemental_page_table {
 	struct hash table;
 };
 
-bool vm_is_page_addr (void *va);
+bool vm_is_page_addr (const void *va);
 
 #include "threads/thread.h"
 bool supplemental_page_table_init (struct supplemental_page_table *spt);

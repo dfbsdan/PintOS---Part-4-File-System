@@ -16,7 +16,7 @@ static vm_initializer page_copy;
 
 /* Checks if a given address corresponds to the one of a page. */
 bool
-vm_is_page_addr (void *va) {
+vm_is_page_addr (const void *va) {
 	return va && pg_round_down (va) == va;
 }
 
@@ -26,9 +26,9 @@ void
 vm_init (void) {
 	vm_anon_init ();
 	vm_file_init ();
-#ifdef EFILESYS  /* For project 4 */
-	pagecache_init ();
-#endif
+//#ifdef EFILESYS  /* For project 4 */
+//	page_cache_init ();
+//#endif
 	register_inspect_intr ();
 	/* DO NOT MODIFY UPPER LINES. */
 	/* TODO: Your code goes here. */
@@ -63,7 +63,7 @@ vm_alloc_page_with_initializer (enum vm_type type, void *va, bool writable,
 	struct page *new_page;
 
 	ASSERT (VM_TYPE (type) != VM_UNINIT);
-	ASSERT (vm_is_page_addr (va)); ////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (va));
 
 	/* Check wheter the upage is already occupied or not. */
 	if (!spt_find_page (spt, va)) {
@@ -88,7 +88,6 @@ vm_alloc_page_with_initializer (enum vm_type type, void *va, bool writable,
 		new_page->t = thread_current ();
 		/* Insert the page into the spt. */
 		ASSERT (spt_insert_page (spt, new_page));
-		//printf("vm_alloc_page_with_initializer: new_page addr: %p\n", new_page); ///TEMPORAL: TESTING
 		return true;
 	}
 	return false;
@@ -116,7 +115,7 @@ bool
 spt_insert_page (struct supplemental_page_table *spt, struct page *page) {
 	ASSERT (spt);
 	ASSERT (page);
-	ASSERT (vm_is_page_addr (page->va)); ////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	return hash_insert (&spt->table, &page->h_elem) == NULL;
 }
 
@@ -216,7 +215,7 @@ vm_get_frame (void) {
 		if (!frame)
 			PANIC ("Could not evict a frame");
 	} else {
-		ASSERT (vm_is_page_addr (kva)); ///////////////////////////////////////////////Debugging purposes: May be incorrect
+		ASSERT (vm_is_page_addr (kva));
 		frame = (struct frame*)malloc (sizeof (struct frame));
 		if (!frame)
 			PANIC ("Insufficient space for a frame");
@@ -250,19 +249,14 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr, bool user,
 	void *pg_va = pg_round_down (addr);
 
 	if (user) {
+		if (!is_user_vaddr (pg_va))
+			return false;
 		if (not_present) {
 			page = spt_find_page (spt, pg_va);
 			if (!page) { //Unexisting page
 				/* Recover if stack overflow. */
-				////////////////////////////////////////////////////////////////////////TESTING
-				pg_va = pg_round_up (addr);
-				ASSERT (pg_va >= addr);
-				if (addr >= (void*)f->rsp - 8 /////////////////////////////////////////////////Has issues for pt-big-stack-obj
-						&& (page = spt_find_page (spt, pg_va))
-						&& page->operations->type == VM_ANON
-						&& page->anon.a_type == ANON_STACK)
+				if (addr >= (void*)f->rsp - 8 && addr <= (void*)USER_STACK)
 					return vm_stack_growth (addr);
-				///////////////////////////////////////////////////////////////////////////////
 				return false; //Unexisting non-stack page
 			}
 			if (write && !page->writable) {
@@ -272,9 +266,7 @@ vm_try_handle_fault (struct intr_frame *f UNUSED, void *addr, bool user,
 		} else
 			return false; //Writing r/o page
 	} else { //Kernel fault
-		//printf("vm_try_handle_fault: Kernel Fault\n");//////////////////////////////TEMPORAL
 		ASSERT (not_present);
-		//printf("vm_try_handle_fault: Not present fault\n");/////////////////////////TEMPORAL
 		page = spt_find_page (spt, pg_va);
 		ASSERT (page);
 		return vm_do_claim_page (page);
@@ -295,14 +287,13 @@ bool
 vm_claim_page (void *va, struct supplemental_page_table *spt) {
 	struct page *page;
 
-	ASSERT (vm_is_page_addr (va)); //////////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (va));
 	ASSERT (spt);
 
 	page = spt_find_page (spt, va);
 	if (!page) //The page does not exist
 		return false;
 	ASSERT (page->va == va);
-	//printf("vm_claim_page: calling vm_do_claim_page\n"); /////////////////////////TEMPORAL: TESTING
 	return vm_do_claim_page (page);
 }
 
@@ -314,25 +305,19 @@ vm_do_claim_page (struct page *page) {
 
 	ASSERT (page);
 	ASSERT (thread_is_user (page->t));
-	ASSERT (vm_is_page_addr (page->va)); ////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	pml4 = page->t->pml4;
-	ASSERT (!pml4_get_page (pml4, page->va)); //Must NOT be mapped already ///////Use return instead of assert?
+	ASSERT (!pml4_get_page (pml4, page->va)); //Must NOT be mapped already
 
 	/* Set links */
 	frame->page = page;
 	page->frame = frame;
 	/* Insert page table entry to map page's VA to frame's PA. */
-	if (pml4_set_page (pml4, page->va, frame->kva, page->writable)) {
-		/* Correct way of handling swap_in error?
-		(Assumption so far: The page is already well-mapped so it can be destroyed
-		with no issue by the caller). */
-		//printf("vm_do_claim_page: swapping in\n"); /////////////////////////////////TEMPORAL: TESTING
-		return swap_in (page, frame->kva);//////////////////////////////////////////May have issues
-	}
+	if (pml4_set_page (pml4, page->va, frame->kva, page->writable))
+		return swap_in (page, frame->kva);
 	palloc_free_page (frame->kva);
 	free (frame);
 	page->frame = NULL;
-	printf("vm_do_claim_page: failure\n"); ///////////////////////////////////////TEMPORAL: TESTING
 	return false;
 }
 
@@ -344,7 +329,7 @@ spt_hash_func (const struct hash_elem *e, void *spt_ UNUSED) {
 	ASSERT (e);
 
 	page = hash_entry (e, struct page, h_elem);
-	ASSERT (vm_is_page_addr (page->va)); ////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	return hash_bytes (&page->va, sizeof (page->va));
 }
 
@@ -360,8 +345,8 @@ spt_less_func (const struct hash_elem *a, const struct hash_elem *b,
 
 	a_page = hash_entry (a, struct page, h_elem);
 	b_page = hash_entry (b, struct page, h_elem);
-	ASSERT (vm_is_page_addr (a_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
-	ASSERT (vm_is_page_addr (b_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (a_page->va));
+	ASSERT (vm_is_page_addr (b_page->va));
 	return a_page->va < b_page->va;
 }
 
@@ -391,6 +376,8 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 		switch (parent_pg->operations->type) {
 			case VM_UNINIT:
 				type = parent_pg->uninit.type;
+				if (VM_TYPE (type) == VM_FILE)
+					continue; //Mapping are not inherited
 				break;
 			case VM_ANON:
 				switch (parent_pg->anon.a_type) {
@@ -405,17 +392,16 @@ supplemental_page_table_copy (struct supplemental_page_table *dst,
 				}
 				break;
 			case VM_FILE:
-				type = VM_FILE;/////////////////////////////////////////////////////////May require more cases
-				break;
+				continue; //Mapping are not inherited
 			default:
 				ASSERT (0);
 		}
+		ASSERT (VM_TYPE (type) != VM_FILE);
 		/* Initialize and copy page. */
 		if (!(vm_alloc_page_with_initializer (type, parent_pg->va, parent_pg->writable,
 				page_copy, parent_pg) && vm_claim_page (parent_pg->va, dst)))
 			return false;
 	}
-	ASSERT (hash_size (&dst->table) == hash_size (&src->table));
 	return true;
 }
 

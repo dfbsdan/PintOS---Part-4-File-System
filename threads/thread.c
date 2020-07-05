@@ -14,6 +14,7 @@
 #include "threads/malloc.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
+#include "filesys/inode.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
@@ -152,6 +153,7 @@ thread_init (void) {
 		PANIC ("Unable to initialize threading system");
 	initial_thread->status = THREAD_RUNNING;
 	initial_thread->tid = allocate_tid ();
+	initial_thread->curr_dir = NULL;
 }
 
 /* Starts preemptive thread scheduling by enabling interrupts.
@@ -249,6 +251,15 @@ thread_create (const char *name, int priority,
 		palloc_free_page (t);
 		return TID_ERROR;
 	}
+	if (curr->curr_dir)
+		t->curr_dir = dir_reopen (curr->curr_dir);
+	else {
+		ASSERT (curr == initial_thread);
+		t->curr_dir = (function != idle)? dir_open_root (): NULL;
+	}
+	if (!t->curr_dir && function != idle)
+		return TID_ERROR;
+
 	tid = t->tid = allocate_tid ();
 
 	/* Call the kernel_thread if it scheduled.
@@ -689,7 +700,7 @@ init_fd_table (struct fd_table *fd_t) {
 	for (i = 2; i <= MAX_FD; i++) {
 		fd = &fd_t->table[i];
 		fd->fd_st = FD_CLOSE;
-		fd->fd_t = FDT_OTHER;
+		fd->fd_t = FDT_NONE;
 	}
 	return true;
 }

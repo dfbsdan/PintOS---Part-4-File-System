@@ -7,6 +7,7 @@
 #include "threads/mmu.h"
 #include <string.h>
 #include <hash.h>
+#include <stdio.h>//////////////////////////////////////////////////////////////TEMPORAL
 
 static hash_hash_func m_hash_func;
 static hash_less_func m_less_func;
@@ -35,7 +36,7 @@ m_hash_func (const struct hash_elem *e, void *aux UNUSED) {
 
 	page = hash_entry (e, struct file_page, um_elem)->page;
 	ASSERT (VM_TYPE (page->operations->type) == VM_FILE);
-	ASSERT (vm_is_page_addr (page->va)); /////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (page->va));
 	return hash_bytes (&page, sizeof (page));
 }
 
@@ -53,8 +54,8 @@ m_less_func (const struct hash_elem *a, const struct hash_elem *b,
 	b_page = hash_entry (b, struct file_page, um_elem)->page;
 	ASSERT (VM_TYPE (a_page->operations->type) == VM_FILE);
 	ASSERT (VM_TYPE (b_page->operations->type) == VM_FILE);
-	ASSERT (vm_is_page_addr (a_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
-	ASSERT (vm_is_page_addr (b_page->va)); //////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (a_page->va));
+	ASSERT (vm_is_page_addr (b_page->va));
 	return a_page < b_page;
 }
 
@@ -86,6 +87,7 @@ file_map_initializer (struct page *page, enum vm_type type, void *kva) {
 	file_page->file = aux->file;
 	file_page->offset = aux->offset;
 	file_page->length = aux->length;
+	file_page->page_cnt = aux->page_cnt;
 	free (aux);
 	ASSERT (!hash_insert (&um_table, &file_page->um_elem));
 	return file_map_swap_in (page, kva);
@@ -112,7 +114,13 @@ file_map_swap_in (struct page *page, void *kva) {
 	length = file_page->length;
 	ASSERT (file);
 	ASSERT (length <= PGSIZE);
-	ASSERT (((size_t)offset + length) <= (size_t)file_length (file));/////////////May not be correct
+	size_t file_len = (size_t)file_length (file);
+	ASSERT (file_len > 0);
+	if (length) {
+		ASSERT ((length + offset) <= file_len);
+	}
+	else
+		ASSERT ((size_t)offset >= file_len);
 
 	/* Read the data and fill the rest of the page with zeroes. */
 	ASSERT ((size_t)file_read_at (file, kva, length, offset) == length);
@@ -135,7 +143,7 @@ file_map_swap_out (struct page *page) {
 	ASSERT (page && vm_is_page_addr (page->va) && page->frame);
 	ASSERT (VM_TYPE (page->operations->type) == VM_FILE);
 	kva = page->frame->kva;
-	ASSERT (vm_is_page_addr (kva)); //////////////////////////////////////////////Debugging purposes: May be incorrect
+	ASSERT (vm_is_page_addr (kva));
 	ASSERT (thread_is_user (page->t)
 			&& spt_find_page (&page->t->spt, page->va) == page
 			&& pml4_get_page (page->t->pml4, page->va) == kva);
@@ -146,8 +154,14 @@ file_map_swap_out (struct page *page) {
 	offset = file_page->offset;
 	length = file_page->length;
 	ASSERT (file);
-	ASSERT (length > 0 && length <= PGSIZE);
-	ASSERT (((size_t)offset + length) <= (size_t)file_length (file));/////////////May not be correct
+	ASSERT (length <= PGSIZE);
+	size_t file_len = (size_t)file_length (file);
+	ASSERT (file_len > 0);
+	if (length) {
+		ASSERT ((length + offset) <= file_len);
+	}
+	else
+		ASSERT ((size_t)offset >= file_len);
 
 	ASSERT ((size_t)file_write_at (file, kva, length, offset) == length);
 	ASSERT (!hash_insert (&um_table, &file_page->um_elem));
@@ -175,15 +189,24 @@ file_map_destroy (struct page *page) {
 	length = file_page->length;
 	ASSERT (file);
 	ASSERT (length <= PGSIZE);
-	ASSERT (((size_t)offset + length) <= (size_t)file_length (file));/////////////May not be correct
-	/* Writeback all the modified contents to the storage, if on main memory. */
+	size_t file_len = (size_t)file_length (file);
+	ASSERT (file_len > 0);
+	if (length) {
+		ASSERT ((length + offset) <= file_len);
+	}
+	else
+		ASSERT ((size_t)offset >= file_len);
+	/* Handle mapped page. */
 	if (pml4_get_page (page->t->pml4, page->va)) {
 		ASSERT (page->frame);
 		kva = page->frame->kva;
 		ASSERT (vm_is_page_addr (kva)
 				&& pml4_get_page (page->t->pml4, page->va) == kva);
 		ASSERT (!hash_find (&um_table, &file_page->um_elem));
-		ASSERT ((size_t)file_write_at (file, kva, length, offset) == length);
+		/* Writeback all the modified contents to the storage, if modified. */
+		if (pml4_is_dirty (page->t->pml4, page->va)) {
+			ASSERT ((size_t)file_write_at (file, kva, length, offset) == length);
+		}
 		pml4_clear_page (page->t->pml4, page->va);
 		palloc_free_page (kva);
 		free (page->frame);
@@ -192,52 +215,134 @@ file_map_destroy (struct page *page) {
 	file_close (file_page->file);
 }
 
+/* Set up the auxiliary data for a file mapped page and the page itself.
+ * Returns TRUE on success, FALSE otherwise. */
+static bool
+set_up_mapped_page (void *uaddr, struct file *file,	off_t offset,
+		size_t read_bytes, const bool writable, size_t page_cnt) {
+	struct file_page *m_elem;
+
+	ASSERT (vm_is_page_addr (uaddr));
+	if (!is_user_vaddr (uaddr))
+		return NULL;
+	ASSERT (file && offset >= 0);
+	ASSERT (read_bytes <= PGSIZE);
+
+	size_t file_len = (size_t)file_length (file);
+	ASSERT (file_len > 0);
+	if (read_bytes) {
+		ASSERT ((read_bytes + offset) <= file_len);
+	}
+	else
+		ASSERT ((size_t)offset >= file_len);
+	/* Setup aux data. */
+	m_elem = (struct file_page*)malloc (sizeof (struct file_page));
+	if (m_elem) {
+		m_elem->file = file;
+		m_elem->offset = offset;
+		m_elem->length = read_bytes;
+		m_elem->page_cnt = page_cnt;
+		/* Setup page. */
+		if (vm_alloc_page_with_initializer (VM_FILE, uaddr, writable, NULL, m_elem))
+			return true;
+		free (m_elem);
+	}
+	return false;
+}
+
 /* Do the mmap */
 void *
 do_mmap (void *addr, size_t length, int writable, struct file *file,
 		off_t offset) {
-	struct file_page *m_elem;
-	size_t page_cnt, read_bytes;
+	size_t file_len, page_cnt, read_bytes;
 	void *uaddr = addr;
 
-	ASSERT (vm_is_page_addr (addr) && length && file);
-	ASSERT (file_length (file) > 0);
+	ASSERT (vm_is_page_addr (addr) && is_user_vaddr (addr) && length && file);
+	ASSERT (file_length (file) > 0 && pg_ofs (offset) == 0);
 
 	page_cnt = (length % PGSIZE)? 1 + length / PGSIZE: length / PGSIZE;
-	if (((size_t)offset + length) > (size_t)file_length (file))
-		length = (size_t)(file_length (file) - offset);
-	for (size_t i = 0; i < page_cnt; i++) {
-		if (i != 0) {
-			/* Make sure that FILE is not destroyed until all pages are removed. */
-			ASSERT (file_dup2 (file));
-		}
-		/* Set up aux data and page. */
-		m_elem = (struct file_page*)malloc (sizeof (struct file_page));
-		if (m_elem) {
-			m_elem->file = file;
-			m_elem->offset = offset;
-			m_elem->length = (length > PGSIZE)? PGSIZE: length;
-			if (vm_alloc_page_with_initializer (VM_FILE, uaddr, writable, NULL, m_elem)) {
-				uaddr += PGSIZE;
-				offset += PGSIZE;
-				length -= m_elem->length;
-				continue;
-			}
-			free (m_elem);
-		}
+	file_len = (size_t)file_length (file);
+	/* Set offset from start of file. */
+	if (offset < 0)
+		offset = file_len + offset;
+	ASSERT (offset >= 0);
+	/* Set length to be the actual number of bytes to read. */
+	if (length + offset > file_len)
+		length = file_len - offset;
+	/* Set up the first page. */
+	read_bytes = length < PGSIZE ? length : PGSIZE;
+	if (!set_up_mapped_page (uaddr, file, offset, read_bytes, writable, page_cnt)) {
 		file_close (file);
 		return NULL;
+	}
+	uaddr += PGSIZE;
+	offset += read_bytes;
+	length -= read_bytes;
+	/* Setup all remaining pages. */
+	for (size_t i = 1; i < page_cnt; i++) {
+		read_bytes = length < PGSIZE ? length : PGSIZE;
+		if (!set_up_mapped_page (uaddr, file, offset, read_bytes, writable, 0)) {
+			do_munmap (addr, true);
+			return NULL;
+		}
+		/* Make sure that FILE is not destroyed until all pages are removed. */
+		ASSERT (file_dup2 (file));
+		/* Advance. */
+		uaddr += PGSIZE;
+		offset += read_bytes;
+		length -= read_bytes;
 	}
 	ASSERT (length == 0);
 	return addr;
 }
 
-/* Do the munmap */
+/* Do the munmap. ERROR must be true ONLY when called inside do_mmap(), i.e.
+ * an error occurred when setting up a page. */
 void
-do_munmap (void *addr) {
+do_munmap (void *addr, bool error) {
 	struct supplemental_page_table *spt = &thread_current ()->spt;
+	struct page *page;
+	size_t page_cnt;
+	struct file_page *m_elem;
 
 	ASSERT (vm_is_page_addr (addr));
 
-	spt_remove_page (spt, spt_find_page (spt, addr));
+	/* Get number of pages and remove the first one. */
+	page = spt_find_page (spt, addr);
+	ASSERT (page);
+	switch (VM_TYPE (page->operations->type)) {
+		case VM_UNINIT:
+			m_elem = (struct file_page *)page->uninit.aux;
+			ASSERT (m_elem->page_cnt > 0);
+			break;
+		case VM_FILE:
+			ASSERT (page->file.page_cnt > 0);
+			break;
+		default:
+			ASSERT (0);
+	}
+	page_cnt = page->file.page_cnt;
+	spt_remove_page (spt, page);
+	addr += PGSIZE;
+	/* Remove all remaining pages. */
+	for (size_t i = 1; i < page_cnt; i++) {
+		page = spt_find_page (spt, addr);
+		if (!page) {
+			ASSERT (error);
+			return;
+		}
+		switch (VM_TYPE (page->operations->type)) {
+			case VM_UNINIT:
+				m_elem = (struct file_page *)page->uninit.aux;
+				ASSERT (m_elem->page_cnt == 0);
+				break;
+			case VM_FILE:
+				ASSERT (page->file.page_cnt == 0);
+				break;
+			default:
+				ASSERT (0);
+		}
+		spt_remove_page (spt, page);
+		addr += PGSIZE;
+	}
 }

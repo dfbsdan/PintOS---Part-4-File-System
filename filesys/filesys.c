@@ -3,7 +3,6 @@
 #include <stdio.h>
 #include <string.h>
 #include "filesys/file.h"
-#include "filesys/free-map.h"
 #include "filesys/inode.h"
 #include "filesys/directory.h"
 #include "devices/disk.h"
@@ -23,22 +22,12 @@ filesys_init (bool format) {
 
 	inode_init ();
 
-#ifdef EFILESYS
 	fat_init ();
 
 	if (format)
 		do_format ();
 
 	fat_open ();
-#else
-	/* Original FS */
-	free_map_init ();
-
-	if (format)
-		do_format ();
-
-	free_map_open ();
-#endif
 }
 
 /* Shuts down the file system module, writing any unwritten data
@@ -46,59 +35,75 @@ filesys_init (bool format) {
 void
 filesys_done (void) {
 	/* Original FS */
-#ifdef EFILESYS
 	fat_close ();
-#else
-	free_map_close ();
-#endif
 }
 
 /* Creates a file named NAME with the given INITIAL_SIZE.
+ * If DIR is not null, the file is added to it (not closed), otherwise, to root.
  * Returns true if successful, false otherwise.
  * Fails if a file named NAME already exists,
  * or if internal memory allocation fails. */
 bool
-filesys_create (const char *name, off_t initial_size) {
-	disk_sector_t inode_sector = 0;
-	struct dir *dir = dir_open_root ();
-	bool success = (dir != NULL
-			&& free_map_allocate (1, &inode_sector)
-			&& inode_create (inode_sector, initial_size)
-			&& dir_add (dir, name, inode_sector));
-	if (!success && inode_sector != 0)
-		free_map_release (inode_sector, 1);
-	dir_close (dir);
+filesys_create (const char *name, off_t initial_size, struct dir *dir) {
+	cluster_t inode_clst = 0;
+	bool success;
+
+	if (dir) {
+		success = ((inode_clst = fat_create_chain (0))
+				&& inode_create (inode_clst, initial_size, false)
+				&& dir_add (dir, name, inode_clst));
+	} else {
+		dir = dir_open_root ();
+		success = (dir != NULL
+				&& (inode_clst = fat_create_chain (0))
+				&& inode_create (inode_clst, initial_size, false)
+				&& dir_add (dir, name, inode_clst));
+		dir_close (dir);
+	}
+	if (!success && inode_clst != 0)
+		fat_remove_chain (inode_clst, 0);
 
 	return success;
 }
 
 /* Opens the file with the given NAME.
+ * If DIR is not null, the file is searched in it (not closed), otherwise,
+ * from root.
  * Returns the new file if successful or a null pointer
  * otherwise.
  * Fails if no file named NAME exists,
  * or if an internal memory allocation fails. */
 struct file *
-filesys_open (const char *name) {
-	struct dir *dir = dir_open_root ();
+filesys_open (const char *name, struct dir *dir) {
 	struct inode *inode = NULL;
 
-	if (dir != NULL)
+	if (dir) {
 		dir_lookup (dir, name, &inode);
-	dir_close (dir);
-
+	} else {
+		dir = dir_open_root ();
+		if (dir != NULL)
+			dir_lookup (dir, name, &inode);
+		dir_close (dir);
+	}
 	return file_open (inode);
 }
 
 /* Deletes the file named NAME.
+ * If DIR is not null, the file is removed from it (not closed), otherwise,
+ * from root.
  * Returns true if successful, false on failure.
  * Fails if no file named NAME exists,
  * or if an internal memory allocation fails. */
 bool
-filesys_remove (const char *name) {
-	struct dir *dir = dir_open_root ();
-	bool success = dir != NULL && dir_remove (dir, name);
-	dir_close (dir);
-
+filesys_remove (const char *name, struct dir *dir) {
+	bool success;
+	if (dir) {
+		success = dir_remove (dir, name);
+	} else {
+		dir = dir_open_root ();
+		success = dir != NULL && dir_remove (dir, name);
+		dir_close (dir);
+	}
 	return success;
 }
 
@@ -107,16 +112,9 @@ static void
 do_format (void) {
 	printf ("Formatting file system...");
 
-#ifdef EFILESYS
 	/* Create FAT and save it to the disk. */
 	fat_create ();
 	fat_close ();
-#else
-	free_map_create ();
-	if (!dir_create (ROOT_DIR_SECTOR, 16))
-		PANIC ("root directory creation failed");
-	free_map_close ();
-#endif
 
 	printf ("done.\n");
 }
