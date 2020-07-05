@@ -778,7 +778,7 @@ check_file_descriptor (struct file_descriptor *fd) {
 
 	switch (fd->fd_st) {
 		case FD_OPEN:
-			switch (file_descriptor->fd_t) {
+			switch (fd->fd_t) {
 				case FDT_STDIN:
 					ASSERT (fd->fd_file == NULL && fd->fd_dir == NULL);
 					return;
@@ -799,9 +799,9 @@ check_file_descriptor (struct file_descriptor *fd) {
 			}
 			break;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_NONE
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->fd_dir == NULL);
+			ASSERT (fd->fd_t == FDT_NONE
+					&& fd->fd_file == NULL
+					&& fd->fd_dir == NULL);
 			return;
 		default:
 			ASSERT (0);
