@@ -491,9 +491,14 @@ process_exit (int status) {
 			/* Print exit status. */
 			printf ("%s: exit(%d)\n", curr->name, curr->exit_status);
 		}
+		if (curr->curr_dir) {
+			dir_close (curr->curr_dir);
+		} else
+			ASSERT (status == -1);
 	} else { //Debugging purposes
 		ASSERT (curr->executable == NULL);
 		ASSERT (curr->fd_t.table == NULL);
+		ASSERT (curr->curr_dir == NULL);
 	}
 	/* Destroy unfreed information of finished child processes (this occurs
 	 * when wait() is not called on a pid). */
