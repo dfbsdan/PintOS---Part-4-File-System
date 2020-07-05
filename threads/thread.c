@@ -14,6 +14,7 @@
 #include "threads/malloc.h"
 #include "intrinsic.h"
 #include "devices/timer.h"
+#include "filesys/inode.h"
 #ifdef USERPROG
 #include "userprog/process.h"
 #endif
