@@ -146,7 +146,8 @@ inode_open (cluster_t clst) {
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
 	disk_read (filesys_disk, cluster_to_sector (inode->clst), &inode->data);
-	ASSERT (inode->data.magic == INODE_MAGIC);
+	if (clst != ROOT_DIR_CLUSTER)
+		ASSERT (inode->data.magic == INODE_MAGIC);
 	return inode;
 }
 
@@ -265,9 +266,9 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	ASSERT (offset >= *data_len);
 	ASSERT (size >= 1);
 
-	ASSERT (inode->data.start);///////////////////////////////////////////////////TESTING LINE
 	/* Make sure there is at least one cluster allocated. */
 	if (!inode->data.start) {
+		ASSERT (inode->clst == ROOT_DIR_CLUSTER);///////////////////////////////////TESTING LINE
 		ASSERT (*data_len == 0);
 		if (!(inode->data.start = fat_create_chain (0)))
 			return false;
