@@ -904,7 +904,7 @@ parse_path (const char *path, struct dir **dirp) {
 					name_len = 1;
 					state = NAME;
 				}
-				break
+				break;
 			case SLASH:
 				if (isspace (c)) {
 					/* Must be the end of the path. */
@@ -938,7 +938,7 @@ parse_path (const char *path, struct dir **dirp) {
 							if (!inode_is_dir (inode))
 								goto error; /* File found, dir expected. */
 							dir_close (dir);
-							dir = dir_open (inode)
+							dir = dir_open (inode);
 							if (!dir)
 								goto error;
 						} else
@@ -951,7 +951,7 @@ parse_path (const char *path, struct dir **dirp) {
 					if (++name_len > NAME_MAX)
 						goto error;
 				}
-				break
+				break;
 			default:
 				ASSERT (0);
 		}
