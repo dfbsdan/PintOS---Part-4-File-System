@@ -81,8 +81,9 @@ inode_create (cluster_t clst, off_t length, bool dir) {
 
 	ASSERT (length >= 0);
 	ASSERT (clst && fat_get (clst) == EOChain);
-	if (dir)
+	if (dir) {
 		ASSERT (length == 0);
+	}
 
 	/* If this assertion fails, the inode structure is not exactly
 	 * one sector in size, and you should fix that. */
@@ -283,8 +284,8 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	bytes_left = (size_t)offset + size - *data_len;
 	offset = *data_len % DISK_SECTOR_SIZE;
 	/* Fill current cluster completely. */
-	new_bytes = (DISK_SECTOR_SIZE - offset < bytes_left)?
-			DISK_SECTOR_SIZE - offset: bytes_left;
+	new_bytes = (DISK_SECTOR_SIZE - (size_t)offset < bytes_left)?
+			DISK_SECTOR_SIZE - (size_t)offset: bytes_left;
 	*data_len += new_bytes;
 	bytes_left -= new_bytes;
 	/* Expand inode until OFFSET can be mapped. */
