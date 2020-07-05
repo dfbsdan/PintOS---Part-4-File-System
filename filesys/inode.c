@@ -50,7 +50,8 @@ byte_to_cluster (const struct inode *inode, off_t pos) {
 		clst = inode->data.start;
 		for (int i = 0; i < pos / DISK_SECTOR_SIZE; i++) {
 			clst = fat_get (clst);
-			ASSERT (clst != EOChain);
+			if (clst == EOChain)
+				return 0;
 		}
 		ASSERT (fat_get (clst));
 		return clst;
