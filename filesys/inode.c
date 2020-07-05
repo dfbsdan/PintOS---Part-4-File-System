@@ -146,23 +146,25 @@ inode_open (cluster_t clst) {
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
 	disk_read (filesys_disk, cluster_to_sector (inode->clst), &inode->data);
-	if (clst != ROOT_DIR_CLUSTER)
-		ASSERT (inode->data.magic == INODE_MAGIC);
+	ASSERT (inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER);
 	return inode;
 }
 
 /* Reopens and returns INODE. */
 struct inode *
 inode_reopen (struct inode *inode) {
-	if (inode != NULL)
+	if (inode != NULL) {
+		ASSERT (inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER);
 		inode->open_cnt++;
+	}
 	return inode;
 }
 
 /* Returns INODE's inode number. */
 cluster_t
 inode_get_inumber (const struct inode *inode) {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	return inode->clst;
 }
 
@@ -175,7 +177,8 @@ inode_close (struct inode *inode) {
 	if (inode == NULL)
 		return;
 
-	ASSERT (inode->data.magic == INODE_MAGIC);
+		ASSERT (inode &&
+				(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 
 	/* Release resources if this was the last opener. */
 	if (--inode->open_cnt == 0) {
@@ -196,7 +199,8 @@ inode_close (struct inode *inode) {
  * has it open. */
 void
 inode_remove (struct inode *inode) {
-	ASSERT (inode != NULL);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	inode->removed = true;
 }
 
@@ -209,7 +213,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 	off_t bytes_read = 0;
 	uint8_t *bounce = NULL;
 
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 
 	while (size > 0) {
 		/* Disk sector to read, starting byte offset within sector. */
@@ -261,7 +266,8 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	cluster_t clst;
 	static char zeros[DISK_SECTOR_SIZE];
 
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	data_len = &inode->data.length;
 	ASSERT (offset >= *data_len);
 	ASSERT (size >= 1);
@@ -307,7 +313,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	off_t bytes_written = 0;
 	uint8_t *bounce = NULL;
 
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	if (inode->deny_write_cnt)
 		return 0;
 
@@ -369,7 +376,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	void
 inode_deny_write (struct inode *inode)
 {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	inode->deny_write_cnt++;
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
@@ -379,7 +387,8 @@ inode_deny_write (struct inode *inode)
  * inode_deny_write() on the inode, before closing the inode. */
 void
 inode_allow_write (struct inode *inode) {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	ASSERT (inode->deny_write_cnt > 0);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	inode->deny_write_cnt--;
@@ -388,14 +397,16 @@ inode_allow_write (struct inode *inode) {
 /* Returns the length, in bytes, of INODE's data. */
 off_t
 inode_length (const struct inode *inode) {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	return inode->data.length;
 }
 
 /* Returns the number of times the inode has been opened. */
 int
 inode_open_cnt (const struct inode *inode) {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	return inode->open_cnt;
 }
