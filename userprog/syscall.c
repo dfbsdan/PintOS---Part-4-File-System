@@ -15,6 +15,7 @@
 #include "filesys/filesys.h"
 #include "filesys/file.h"
 #include "filesys/inode.h"
+#include "filesys/directory.h"
 #include "devices/input.h"
 #include "intrinsic.h"
 #include "threads/malloc.h"
@@ -49,12 +50,16 @@ static int syscall_write (struct intr_frame *f, int fd, const void *buffer, unsi
 static void syscall_seek (int fd, unsigned position);
 static unsigned syscall_tell (int fd);
 static void syscall_close (int fd);
-static int syscall_dup2 (int oldfd, int newfd);
 static void *syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void syscall_munmap (void *addr);
+static bool syscall_chdir (struct intr_frame *f, const char *dir);
+static bool syscall_mkdir (struct intr_frame *f, const char *dir);
+static bool syscall_readdir (struct intr_frame *f, int fd, char *name);
 static bool syscall_isdir (int fd);
 static int syscall_inumber (int fd);
-static int create_file_descriptor (struct file *file);
+
+static int create_file_descriptor (void *ptr, bool is_dir);
+static char *parse_path (const char *path, struct dir **dirp);
 static void check_mem_space_read (struct intr_frame *f, const void *addr_, const size_t size, const bool is_str);
 static void check_mem_space_write (struct intr_frame *f, const void *addr_, const size_t size);
 static int64_t get_user(const uint8_t *uaddr);
@@ -122,9 +127,7 @@ syscall_handler (struct intr_frame *f) {
 			syscall_close ((int)f->R.rdi);
 			break;
 		/* Extra for Project 2 */
-		case SYS_DUP2:
-			f->R.rax = (uint64_t)syscall_dup2 ((int)f->R.rdi, (int)f->R.rsi);
-			break;
+		//case SYS_DUP2:
 		/* Project 3 and optionally project 4. */
 		case SYS_MMAP:			/* Map a file into memory. */
 			f->R.rax = (uint64_t)syscall_mmap ((void*)f->R.rdi, (size_t)f->R.rsi, (int)f->R.rdx, (int)f->R.r10 , (off_t)f->R.r8 );
@@ -134,9 +137,15 @@ syscall_handler (struct intr_frame *f) {
 			break;
 
 		/* Project 4 only. */
-		//case SYS_CHDIR:			/* Change the current directory. */
-		//case SYS_MKDIR:			/* Create a directory. */
-		//case SYS_READDIR:		/* Reads a directory entry. */
+		case SYS_CHDIR:			/* Change the current directory. */
+			f->R.rax = (uint64_t)syscall_chdir (f, (const char*)f->R.rdi);
+			break;
+		case SYS_MKDIR:			/* Create a directory. */
+			f->R.rax = (uint64_t)syscall_mkdir (f, (const char*)f->R.rdi);
+			break
+		case SYS_READDIR:		/* Reads a directory entry. */
+			f->R.rax = (uint64_t)syscall_readdir (f, (int)f->R.rdi, (char*)f->R.rsi);
+			break;
 		case SYS_ISDIR:			/* Tests if a fd represents a directory. */
 			f->R.rax = (uint64_t)syscall_isdir ((int)f->R.rdi);
 			break;
@@ -246,24 +255,52 @@ syscall_wait (int pid) {
 * not open it: opening the new file is a separate operation which would
 * require a open system call. */
 static bool
-syscall_create (struct intr_frame *f, const char *file, unsigned initial_size) {
+syscall_create (struct intr_frame *f, const char *path, unsigned initial_size) {
+	char *file_name;
+	struct dir *dir;
+	bool success = false;
+
 	ASSERT (f);
 
-	check_mem_space_read (f, file, 0, true);
-	return filesys_create(file, initial_size);
+	check_mem_space_read (f, path, 0, true);
+
+	if ((file_name = parse_path (path, *dir)) != NULL) {
+		success = filesys_create (file_name, initial_size, dir);
+		dir_close (dir);
+		free (file_name);
+	}
+	return success;
 }
 
 /* Deletes the file called file. Returns true if successful, false
  * otherwise. A file may be removed regardless of whether it is open or
  * closed, and removing an open file does not close it. */
 static bool
-syscall_remove (struct intr_frame *f, const char *file) {
+syscall_remove (struct intr_frame *f, const char *path) {
+	struct inode *inode;
+	char *name;
+	struct dir *dir;
+	bool success = false;
+
 	ASSERT (f);
 
-	if (file == NULL)
+	if (path == NULL)
 		return false;
-	check_mem_space_read (f, file, 0, true);
-	return filesys_remove(file);
+	check_mem_space_read (f, path, 0, true);
+
+	if ((name = parse_path (path, *dir)) != NULL) {
+		if (dir_lookup (dir, name, &inode)) {
+			if (inode_is_dir (inode) && inode_length (inode) == 0) {
+				inode_remove (inode);
+				success = true;
+			} else
+				success = filesys_remove(name, dir);
+			inode_close (inode);
+		}
+		dir_close (dir);
+		free (name);
+	}
+	return success;
 }
 
 /* Opens the file called file. Returns a nonnegative integer handle called
@@ -279,64 +316,37 @@ syscall_remove (struct intr_frame *f, const char *file) {
  * file descriptors for a single file are closed independently in separate
  * calls to close and they do not share a file position. */
 static int
-syscall_open (struct intr_frame *frame, const char *file) {
-	struct file *f;
+syscall_open (struct intr_frame *frame, const char *path) {
+	struct inode *inode;
+	char *name;
+	struct dir *dir;
+	void *ptr;
+	bool success = false, is_dir;
 
 	ASSERT (frame);
 
-	if (file == NULL)
+	if (path == NULL)
 		return -1;
-	check_mem_space_read (frame, file, 0, true);
-	f = filesys_open (file);
-	if (f == NULL)
-		return -1;
-	return create_file_descriptor (f);
-}
+	check_mem_space_read (frame, path, 0, true);
 
-/* Opens a file descriptor in the current process' file descriptor table
-	 and maps it to the given FILE. Returns -1 on failure, otherwise a file
-	 descriptor (integer) in the range [0, MAX_FD], inclusive. */
-static int
-create_file_descriptor (struct file *file) {
-	struct fd_table *fd_t = &thread_current ()->fd_t;
-	struct file_descriptor *fd;
 
-	ASSERT (file);
-	ASSERT (fd_t->table);
-	ASSERT (fd_t->size <= MAX_FD + 1);
-
-	if (fd_t->size == MAX_FD + 1) { /* Full table. */
-		file_close (file);
-		return -1;
-	}
-	/* Find and return the fd with lowest index available. */
-	for (int i = 0; i <= MAX_FD; i++) {
-		fd = &fd_t->table[i];
-		switch (fd->fd_st) {
-			case FD_OPEN:
-				if (fd->fd_file == NULL) {
-					ASSERT ((fd->fd_t == FDT_STDIN || fd->fd_t == FDT_STDOUT)
-							&& fd->dup_fds == NULL);
-				} else
-					ASSERT (fd->fd_t == FDT_OTHER && fd->dup_fds);
-				break;
-			case FD_CLOSE:
-				ASSERT (fd->fd_t == FDT_OTHER && fd->fd_file == NULL && fd->dup_fds == NULL);
-				fd->dup_fds = (uint8_t *)calloc (MAX_FD + 1, sizeof (uint8_t));
-				if (!fd->dup_fds) {
-					file_close (file);
-					return -1;
-				}
-				fd->dup_fds[i] = 1;
-				fd->fd_st = FD_OPEN;
-				fd->fd_file = file;
-				fd_t->size++;
-				return i;
-			default:
-				ASSERT (0);
+	if ((name = parse_path (path, *dir)) != NULL) {
+		if (dir_lookup (dir, name, &inode)) {
+			if (inode_is_dir (inode)) {
+				ptr = (void*)dir_open (inode);
+				is_dir = true;
+			} else {
+				ptr = (void*)file_open (inode);
+				is_dir = false;
+			}
+			success = ptr? true: false;
+			if (!success)
+				inode_close (inode);
 		}
+		dir_close (dir);
+		free (name);
 	}
-	ASSERT (0); /* Should not be reached. */
+	return (success)? create_file_descriptor (ptr, is_dir): -1;
 }
 
 /* Returns the size, in bytes, of the file open as fd. */
@@ -351,21 +361,13 @@ syscall_filesize (int fd) {
 	if (fd < 0 || fd > MAX_FD)
 		return -1;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				return -1;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return (int)file_length (file_descriptor->fd_file);
+			if (file_descriptor->fd_t == FDT_FILE)
+				return (int)file_length (file_descriptor->fd_file);
+			return -1;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return -1;
 		default:
 			ASSERT (0);
@@ -394,28 +396,20 @@ syscall_read (struct intr_frame *f, int fd, void *buffer, unsigned length) {
 	if (fd < 0 || fd > MAX_FD)
 		return -1;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				if (file_descriptor->fd_t == FDT_STDOUT)
-					return -1;
+			if (file_descriptor->fd_t == FDT_STDIN) {
 				while (bytes_left > 0) {
 					ui8buffer[bytes_read] = input_getc ();
 					bytes_read++;
 					bytes_left--;
 				}
 				return length;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return (int)file_read (file_descriptor->fd_file, buffer, length);
+			} else if (file_descriptor->fd_t == FDT_FILE)
+				return (int)file_read (file_descriptor->fd_file, buffer, length);
+			return -1;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return -1;
 		default:
 			ASSERT (0);
@@ -445,15 +439,10 @@ syscall_write (struct intr_frame *f, int fd, const void *buffer, unsigned length
 	if (fd < 0 || fd > MAX_FD)
 		return -1;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				if (file_descriptor->fd_t == FDT_STDIN)
-					return -1;
-				/* Write to stdout. */
+			if (file_descriptor->fd_t == FDT_STDOUT) {
 				while (bytes_left > 0) {
 					/* Write in 200-byte chunks. */
 					bytes_written = (bytes_left > 200)? 200: bytes_left;
@@ -461,14 +450,10 @@ syscall_write (struct intr_frame *f, int fd, const void *buffer, unsigned length
 					bytes_left -= bytes_written;
 				}
 				return length;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return (int)file_write (file_descriptor->fd_file, buffer, length);
+			} else if (file_descriptor->fd_t == FDT_FILE)
+				return (int)file_write (file_descriptor->fd_file, buffer, length);
+			return -1;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return -1;
 		default:
 			ASSERT (0);
@@ -496,22 +481,13 @@ syscall_seek (int fd, unsigned position) {
 	if (fd < 0 || fd > MAX_FD)
 		return;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				return;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			file_seek (file_descriptor->fd_file, position);
+			if (file_descriptor->fd_t == FDT_FILE)
+				file_seek (file_descriptor->fd_file, position);
 			return;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return;
 		default:
 			ASSERT (0);
@@ -532,21 +508,13 @@ syscall_tell (int fd) {
 	if (fd < 0 || fd > MAX_FD)
 		return 0;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				return 0;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return (unsigned)file_tell (file_descriptor->fd_file);
+			if (file_descriptor->fd_t == FDT_FILE)
+				return (unsigned)file_tell (file_descriptor->fd_file);
+			return 0;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return 0;
 		default:
 			ASSERT (0);
@@ -568,96 +536,22 @@ syscall_close (int fd) {
 	if (fd < 0 || fd > MAX_FD)
 		return;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
 			fd_t->size--;
 			file_descriptor->fd_st = FD_CLOSE;
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				file_descriptor->fd_t = FDT_OTHER;
-				return;
+			if (file_descriptor->fd_t == FDT_FILE) {
+				file_close (file_descriptor->fd_file);
+				file_descriptor->fd_file = NULL;
+			} else if (file_descriptor->fd_t == FDT_DIR) {
+				dir_close (file_descriptor->fd_dir);
+				file_descriptor->fd_dir = NULL;
 			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			if (file_open_cnt (file_descriptor->fd_file) == 1)
-				free(file_descriptor->dup_fds);
-			else
-				file_descriptor->dup_fds[fd] = 0;
-			file_close (file_descriptor->fd_file);
-			file_descriptor->fd_file = NULL;
-			file_descriptor->dup_fds = NULL;
+			file_descriptor->fd_t = FDT_NONE;
 			return;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return;
-		default:
-			ASSERT (0);
-	}
-	ASSERT (0); /* Should not be reached. */
-}
-
-/* The dup2() system call creates a copy of the file descriptor oldfd with
- * the file descriptor number specified in newfd, and returns newfd on
- * success. If the file descriptor newfd was previously open, it is
- * silently closed before being reused.
- * Note the following points:
- * If oldfd is not a valid file descriptor, then the call fails (returns
- * -1), and newfd is not closed.
- * If oldfd is a valid file descriptor, and newfd has the same value as
- * oldfd, then dup2() does nothing, and returns newfd.
- * After a successful return from this system call, the old and new file
- * descriptors may be used interchangeably. Although they are different
- * file descriptors, they refer to the same open file description and thus
- * share file offset and status flags; for example, if the file offset is
- * modified by using seek on one of the descriptors, the offset is also
- * changed for the other. */
-static int
-syscall_dup2 (int oldfd, int newfd) {
-	struct fd_table *fd_t = &thread_current ()->fd_t;
-	struct file_descriptor *old_file_descriptor, *new_file_descriptor;
-
-	ASSERT (fd_t->table);
-	ASSERT (fd_t->size <= MAX_FD + 1);
-
-	if (oldfd < 0 || oldfd > MAX_FD || newfd < 0 || newfd > MAX_FD)
-		return -1;
-	old_file_descriptor = &fd_t->table[oldfd];
-	switch (old_file_descriptor->fd_st) {
-		case FD_OPEN:
-			ASSERT ((old_file_descriptor->fd_file == NULL
-							&& old_file_descriptor->dup_fds == NULL
-							&& (old_file_descriptor->fd_t == FDT_STDIN
-									|| old_file_descriptor->fd_t == FDT_STDOUT))
-					|| (old_file_descriptor->fd_file != NULL
-							&& old_file_descriptor->fd_t == FDT_OTHER
-							&& old_file_descriptor->dup_fds));
-			if (oldfd == newfd)
-				return newfd;
-			syscall_close (newfd);
-			new_file_descriptor = &fd_t->table[newfd];
-			ASSERT (new_file_descriptor->fd_st == FD_CLOSE
-					&& new_file_descriptor->fd_t == FDT_OTHER
-					&& new_file_descriptor->fd_file == NULL
-					&& new_file_descriptor->dup_fds == NULL);
-			new_file_descriptor->fd_st = FD_OPEN;
-			new_file_descriptor->fd_t = old_file_descriptor->fd_t;
-			if (old_file_descriptor->fd_file) {
-				ASSERT (old_file_descriptor->dup_fds);
-				new_file_descriptor->fd_file = file_dup2 (old_file_descriptor->fd_file);
-				new_file_descriptor->dup_fds = old_file_descriptor->dup_fds;
-				new_file_descriptor->dup_fds[newfd] = 1;
-			}
-			fd_t->size++;
-			return newfd;
-		case FD_CLOSE:
-			ASSERT (old_file_descriptor->fd_t == FDT_OTHER
-					&& old_file_descriptor->fd_file == NULL
-					&& old_file_descriptor->dup_fds == NULL);
-			return -1;
 		default:
 			ASSERT (0);
 	}
@@ -690,24 +584,18 @@ syscall_mmap (void *addr, size_t length, int writable, int fd, off_t offset) {
 		return NULL;
 
 	file_descriptor = &fd_t->table[fd];
-	if (file_descriptor->fd_t == FDT_STDIN || file_descriptor->fd_t == FDT_STDOUT)
-		return NULL;
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL)
-				return NULL;
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			if (file_length (file_descriptor->fd_file) <= 0)
-				return NULL;
-			newfile = file_reopen (file_descriptor->fd_file);
-			if (!newfile)
-				return NULL;
-			return do_mmap (addr, length, writable, newfile, offset);
+			if (file_descriptor->fd_t == FDT_FILE
+					&& file_length (file_descriptor->fd_file) > 0) {
+				newfile = file_reopen (file_descriptor->fd_file);
+				if (!newfile)
+					return NULL;
+				return do_mmap (addr, length, writable, newfile, offset);
+			}
+			return NULL;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return NULL;
 		default:
 			ASSERT (0);
@@ -731,6 +619,102 @@ syscall_munmap (void *addr) {
 	do_munmap (addr, false);
 }
 
+/* Changes the current working directory of the process to dir, which may be
+ * relative or absolute. Returns true if successful, false on failure. */
+static bool
+syscall_chdir (struct intr_frame *f, const char *path) {
+	char *dir_name;
+	struct dir *dir, *new_dir = NULL;
+	struct inode *inode;
+
+	ASSERT (f);
+
+	check_mem_space_read (f, path, 0, true);
+	ASSERT (0);
+	if ((dir_name = parse_path (path, *dir)) != NULL) {
+		if (dir_lookup (dir, dir_name, &inode)) {
+			ASSERT (inode_is_dir (inode));
+			new_dir = dir_open (inode);
+			if (!new_dir)
+				inode_close (inode);
+		}
+		dir_close (dir);
+		free (dir_name);
+	}
+	if (new_dir) {
+		dir_close (thread_current ()->curr_dir);
+		thread_current ()->curr_dir = new_dir;
+		return true;
+	}
+	return false;
+}
+
+/* Creates the directory named DIR, which may be relative or absolute.
+ * Returns true if successful, false on failure.
+ * Fails if dir already exists or if any directory name in dir, besides the
+ * last, does not already exist. That is, mkdir("/a/b/c") succeeds only if /a/b
+ * already exists and /a/b/c does not. */
+static bool
+syscall_mkdir (struct intr_frame *f, const char *path) {
+	char *dir_name;
+	struct dir *dir;
+	cluster_t inode_clst;
+	bool success = false;
+
+	ASSERT (f);
+
+	check_mem_space_read (f, path, 0, true);
+
+	if ((dir_name = parse_path (path, *dir)) != NULL) {
+		success = (inode_clst = fat_create_chain (0))
+				&& dir_create (inode_clst)
+				&& dir_add (dir, dir_name, inode_clst);
+		if (!success && inode_clst != 0)
+			fat_remove_chain (inode_clst, 0);
+		dir_close (dir);
+		free (dir_name);
+	}
+	return success;
+}
+
+/* Reads a directory entry from file descriptor fd, which must represent a
+ * directory. If successful, stores the null-terminated file name in name, which
+ * must have room for READDIR_MAX_LEN + 1 bytes, and returns true. If no entries
+ * are left in the directory, returns false.
+ * . and .. should not be returned by readdir. If the directory changes while it
+ * is open, then it is acceptable for some entries not to be read at all or to
+ * be read multiple times. Otherwise, each directory entry should be read once,
+ * in any order.
+ * READDIR_MAX_LEN is defined in lib/user/syscall.h. If your file system
+ * supports longer file names than the basic file system, you should increase
+ * this value from the default of 14. */
+static bool
+syscall_readdir (struct intr_frame *f, int fd, char *name) {
+	struct fd_table *fd_t = &thread_current ()->fd_t;
+	struct file_descriptor *file_descriptor;
+
+	ASSERT (f);
+	ASSERT (fd_t->table);
+	ASSERT (fd_t->size <= MAX_FD + 1);
+
+	check_mem_space_read (f, name, NAME_MAX + 1, false);
+	if (fd < 0 || fd > MAX_FD)
+		return false;
+	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
+	switch (file_descriptor->fd_st) {
+		case FD_OPEN:
+			if (file_descriptor->fd_t == FDT_DIR) {
+				return dir_readdir (file_descriptor->fd_dir, name);
+			return false;
+		case FD_CLOSE:
+			return false;
+		default:
+			ASSERT (0);
+	}
+	ASSERT (0); /* Should not be reached. */
+}
+
 /* Returns true if fd represents a directory, false if it represents an ordinary
  * file. */
 static bool
@@ -744,21 +728,11 @@ syscall_isdir (int fd) {
 	if (fd < 0 || fd > MAX_FD)
 		return false;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				return false;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return inode_is_dir (file_get_inode (file_descriptor->fd_file));
+			return file_descriptor->fd_t == FDT_DIR;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return false;
 		default:
 			ASSERT (0);
@@ -782,26 +756,120 @@ syscall_inumber (int fd) {
 	if (fd < 0 || fd > MAX_FD)
 		return -1;
 	file_descriptor = &fd_t->table[fd];
+	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_file == NULL) {
-				ASSERT ((file_descriptor->fd_t == FDT_STDIN
-						|| file_descriptor->fd_t == FDT_STDOUT)
-						&& file_descriptor->dup_fds == NULL);
-				return -1;
-			}
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->dup_fds);
-			return inode_get_inumber (file_get_inode (file_descriptor->fd_file));
+			if (file_descriptor->fd_t == FDT_DIR)
+				return inode_get_inumber (dir_get_inode (file_descriptor->fd_dir));
+			return -1;
 		case FD_CLOSE:
-			ASSERT (file_descriptor->fd_t == FDT_OTHER
-					&& file_descriptor->fd_file == NULL
-					&& file_descriptor->dup_fds == NULL);
 			return -1;
 		default:
 			ASSERT (0);
 	}
 	ASSERT (0); /* Should not be reached. */
+}
+
+/* Checks if the given file descriptor FD is correct.
+ * Nothing happens on success, an assertion fails otherwise. */
+void
+check_file_descriptor (struct file_descriptor *fd) {
+	ASSERT (fd);
+
+	switch (fd->fd_st) {
+		case FD_OPEN:
+			switch (file_descriptor->fd_t) {
+				case FDT_STDIN:
+					ASSERT (fd->fd_file == NULL && fd->fd_dir == NULL);
+					return;
+				case FDT_STDOUT:
+					ASSERT (fd->fd_file == NULL && fd->fd_dir == NULL);
+					return;
+				case FDT_FILE:
+					ASSERT (fd->fd_file && fd->fd_dir == NULL);
+					ASSERT (!inode_is_dir (file_get_inode (fd->fd_file)));
+					ASSERT (file_open_cnt (fd->fd_file) == 1);
+					return;
+				case FDT_DIR:
+					ASSERT (fd->fd_file == NULL && fd->fd_dir);
+					ASSERT (inode_is_dir (dir_get_inode (fd->fd_dir)));
+					return;
+				default:
+					ASSERT (0);
+			}
+			break;
+		case FD_CLOSE:
+			ASSERT (file_descriptor->fd_t == FDT_NONE
+					&& file_descriptor->fd_file == NULL
+					&& file_descriptor->fd_dir == NULL);
+			return;
+		default:
+			ASSERT (0);
+	}
+}
+
+/* Opens a file descriptor in the current process' file descriptor table
+	 and maps it to the given FILE. Returns -1 on failure, otherwise a file
+	 descriptor (integer) in the range [0, MAX_FD], inclusive. */
+static int
+create_file_descriptor (void *ptr, bool is_dir) {
+	struct fd_table *fd_t = &thread_current ()->fd_t;
+	struct file_descriptor *fd;
+
+	ASSERT (ptr);
+	ASSERT (fd_t->table);
+	ASSERT (fd_t->size <= MAX_FD + 1);
+	if (is_dir) {
+		ASSERT (inode_is_dir (dir_get_inode (ptr)));
+	} else {
+		ASSERT (!inode_is_dir (file_get_inode (ptr)));
+	}
+
+	if (fd_t->size == MAX_FD + 1) { /* Full table. */
+		if (is_dir)
+			dir_close (ptr);
+		else
+			file_close (ptr);
+		return -1;
+	}
+	/* Find and return the fd with lowest index available. */
+	for (int i = 0; i <= MAX_FD; i++) {
+		fd = &fd_t->table[i];
+		check_file_descriptor (fd);
+		switch (fd->fd_st) {
+			case FD_OPEN:
+				break;
+			case FD_CLOSE:
+				fd->fd_st = FD_OPEN;
+				if (is_dir) {
+					fd->fd_t = FDT_DIR;
+					fd->fd_dir = ptr;
+				} else {
+					fd->fd_t = FDT_FILE;
+					fd->fd_file = ptr;
+				}
+				fd_t->size++;
+				return i;
+			default:
+				ASSERT (0);
+		}
+	}
+	ASSERT (0); /* Should not be reached. */
+}
+
+/* Parses the given PATH so that the last name it contains is returned as a
+ * dynamically allocated string.
+ * On success, returns a pointer to such allocated string, otherwise NULL.
+ * Moreover, on a successful parsing, it is expected to have opened the last
+ * directory specified in PATH (if relative, otherwise the curent working dir,
+ * which must be reopened so that it can be later closed by the callers),
+ * while setting *DIRP to it. */
+static char *
+parse_path (const char *path, struct dir **dirp) {
+	char *name;
+	ASSERT (path && dirp);
+
+	ASSERT (0);///////////////////////////////////////////////////////////////////NOT FINISHED
 }
 
 /* Given the address ADDR of a memory space of size SIZE bytes, this

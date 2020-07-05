@@ -252,7 +252,7 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 	}
 	if (curr->curr_dir)
-		t->curr_dir = dir_open (inode_reopen (dir_get_inode (curr->curr_dir)));
+		t->curr_dir = dir_reopen (curr->curr_dir);
 	else {
 		ASSERT (curr == initial_thread);
 		t->curr_dir = (function != idle)? dir_open_root (): NULL;
@@ -700,7 +700,7 @@ init_fd_table (struct fd_table *fd_t) {
 	for (i = 2; i <= MAX_FD; i++) {
 		fd = &fd_t->table[i];
 		fd->fd_st = FD_CLOSE;
-		fd->fd_t = FDT_OTHER;
+		fd->fd_t = FDT_NONE;
 	}
 	return true;
 }

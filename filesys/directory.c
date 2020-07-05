@@ -207,7 +207,7 @@ bool
 dir_readdir (struct dir *dir, char name[NAME_MAX + 1]) {
 	struct dir_entry e;
 
-	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {
+	while (inode_read_at (dir->inode, &e, sizeof e, dir->pos) == sizeof e) {//////TODO: MUST NOR RETURN . NOR ..
 		dir->pos += sizeof e;
 		if (e.in_use) {
 			strlcpy (name, e.name, NAME_MAX + 1);

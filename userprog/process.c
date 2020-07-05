@@ -245,71 +245,39 @@ duplicate_fd_table (struct fd_table *parent_fd_t) {
 	for (int i = 0; i <= MAX_FD; i++) {
 		parent_fd = &parent_fd_t->table[i];
 		curr_fd = &curr_fd_t->table[i];
-		switch (curr_fd->fd_st) {
+		check_file_descriptor (parent_fd);
+		check_file_descriptor (curr_fd);
+		ASSERT (curr_fd->fd_st == FD_CLOSE);
+		switch (parent_fd->fd_st) {
 			case FD_OPEN:
-				if (curr_fd->fd_file == NULL) {
-					ASSERT ((curr_fd->fd_t == FDT_STDIN || curr_fd->fd_t == FDT_STDOUT)
-							&& curr_fd->dup_fds == NULL);
-				} else
-					ASSERT (curr_fd->fd_t == FDT_OTHER && curr_fd->dup_fds);
-				break;
-			case FD_CLOSE:
-				ASSERT (curr_fd->fd_file == NULL && curr_fd->fd_t == FDT_OTHER
-						&& curr_fd->dup_fds == NULL);
+				/* Copy open fd. */
 				switch (parent_fd->fd_st) {
-					case FD_OPEN:
-						/* Copy open fd. */
-						if (parent_fd->fd_file) {
-							ASSERT (parent_fd->fd_t == FDT_OTHER && parent_fd->dup_fds);
-							curr_fd->dup_fds = (uint8_t *)calloc (MAX_FD + 1, sizeof (uint8_t));
-							if (!curr_fd->dup_fds) {
-								intr_set_level (old_level);
-								return false;
-							}
-							curr_fd->dup_fds[i] = 1;
-							curr_fd->fd_file = file_duplicate (parent_fd->fd_file);
-							if (!curr_fd->fd_file) {
-								free (curr_fd->dup_fds);
-								curr_fd->dup_fds = NULL;
-								intr_set_level (old_level);
-								return false;
-							}
-							/* Copy duplicated fds (with dup2()). */
-							if (file_open_cnt (parent_fd->fd_file) > 1) {
-								dup_cnt = 1;
-								for (int k = i + 1;
-										k <= MAX_FD && dup_cnt != file_open_cnt (parent_fd->fd_file);
-										k++) {
-									if (parent_fd->dup_fds[k]) {
-										dup_fd = &curr_fd_t->table[k];
-										ASSERT (dup_fd->fd_st == FD_CLOSE
-												&& dup_fd->fd_t == FDT_OTHER
-												&& dup_fd->fd_file == NULL
-												&& dup_fd->dup_fds == NULL);
-										dup_fd->fd_st = FD_OPEN;
-										dup_fd->fd_file = file_dup2 (curr_fd->fd_file);
-										dup_fd->dup_fds = curr_fd->dup_fds;
-										dup_fd->dup_fds[k] = 1;
-										dup_cnt++;
-										curr_fd_t->size++;
-									}
-								}
-							}
-							ASSERT (file_open_cnt (curr_fd->fd_file) == file_open_cnt (parent_fd->fd_file));
-						} else
-							ASSERT ((parent_fd->fd_t == FDT_STDIN || parent_fd->fd_t == FDT_STDOUT)
-									&& parent_fd->dup_fds == NULL);
-						curr_fd->fd_st = FD_OPEN;
-						curr_fd->fd_t = parent_fd->fd_t;
-						curr_fd_t->size++;
+					case FDT_STDIN:
 						break;
-					case FD_CLOSE:
-						ASSERT (parent_fd->fd_file == NULL && parent_fd->fd_t == FDT_OTHER
-								&& parent_fd->dup_fds == NULL);
+					case FDT_STDOUT:
+						break;
+					case FDT_FILE:
+						curr_fd->fd_file = file_duplicate (parent_fd->fd_file);
+						if (!curr_fd->fd_file) {
+							intr_set_level (old_level);
+							return false;
+						}
+						break;
+					case FDT_DIR:
+						curr_fd->fd_dir = dir_reopen (parent_fd->fd_dir);
+						if (!curr_fd->fd_dir) {
+							intr_set_level (old_level);
+							return false;
+						}
 						break;
 					default:
 						ASSERT (0);
 				}
+				curr_fd->fd_st = FD_OPEN;
+				curr_fd->fd_t = parent_fd->fd_t;
+				curr_fd_t->size++;
+				break;
+			case FD_CLOSE:
 				break;
 			default:
 				ASSERT (0);
@@ -464,19 +432,15 @@ process_exit (int status) {
 		/* Destroy file descriptor table. */
 		for (int i = 0; i <= MAX_FD; i++) {
 			fd = &curr->fd_t.table[i];
+			check_file_descriptor (fd);
 			switch (fd->fd_st) {
 				case FD_OPEN:
-					if (fd->fd_file == NULL) {
-						ASSERT (fd->fd_t == FDT_STDIN || fd->fd_t == FDT_STDOUT);
-						break;
-					}
-					ASSERT (fd->fd_t == FDT_OTHER && fd->dup_fds != NULL);
-					if (file_open_cnt (fd->fd_file) == 1)
-						free(fd->dup_fds);
-					file_close (fd->fd_file);
+					if (fd->fd_t == FDT_FILE)
+						file_close (fd->fd_file);
+					else if (fd->fd_t == FDT_DIR)
+						dir_close (fd->fd_dir);
 					break;
 				case FD_CLOSE:
-					ASSERT (fd->fd_t == FDT_OTHER && fd->fd_file == NULL && fd->dup_fds == NULL);
 					break;
 				default:
 					ASSERT (0);
