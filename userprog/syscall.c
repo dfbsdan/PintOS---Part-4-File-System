@@ -631,7 +631,6 @@ syscall_chdir (struct intr_frame *f, const char *path) {
 	ASSERT (f);
 
 	check_mem_space_read (f, path, 0, true);
-	ASSERT (0);
 	if ((dir_name = parse_path (path, &dir)) != NULL) {
 		if (dir_lookup (dir, dir_name, &inode)) {
 			ASSERT (inode_is_dir (inode));
