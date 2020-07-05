@@ -704,7 +704,7 @@ syscall_readdir (struct intr_frame *f, int fd, char *name) {
 	check_file_descriptor (file_descriptor);
 	switch (file_descriptor->fd_st) {
 		case FD_OPEN:
-			if (file_descriptor->fd_t == FDT_DIR) {
+			if (file_descriptor->fd_t == FDT_DIR)
 				return dir_readdir (file_descriptor->fd_dir, name);
 			return false;
 		case FD_CLOSE:
