@@ -142,7 +142,7 @@ syscall_handler (struct intr_frame *f) {
 			break;
 		case SYS_MKDIR:			/* Create a directory. */
 			f->R.rax = (uint64_t)syscall_mkdir (f, (const char*)f->R.rdi);
-			break
+			break;
 		case SYS_READDIR:		/* Reads a directory entry. */
 			f->R.rax = (uint64_t)syscall_readdir (f, (int)f->R.rdi, (char*)f->R.rsi);
 			break;
@@ -264,7 +264,7 @@ syscall_create (struct intr_frame *f, const char *path, unsigned initial_size) {
 
 	check_mem_space_read (f, path, 0, true);
 
-	if ((file_name = parse_path (path, *dir)) != NULL) {
+	if ((file_name = parse_path (path, &dir)) != NULL) {
 		success = filesys_create (file_name, initial_size, dir);
 		dir_close (dir);
 		free (file_name);
@@ -288,7 +288,7 @@ syscall_remove (struct intr_frame *f, const char *path) {
 		return false;
 	check_mem_space_read (f, path, 0, true);
 
-	if ((name = parse_path (path, *dir)) != NULL) {
+	if ((name = parse_path (path, &dir)) != NULL) {
 		if (dir_lookup (dir, name, &inode)) {
 			if (inode_is_dir (inode) && inode_length (inode) == 0) {
 				inode_remove (inode);
@@ -330,7 +330,7 @@ syscall_open (struct intr_frame *frame, const char *path) {
 	check_mem_space_read (frame, path, 0, true);
 
 
-	if ((name = parse_path (path, *dir)) != NULL) {
+	if ((name = parse_path (path, &dir)) != NULL) {
 		if (dir_lookup (dir, name, &inode)) {
 			if (inode_is_dir (inode)) {
 				ptr = (void*)dir_open (inode);
@@ -631,7 +631,7 @@ syscall_chdir (struct intr_frame *f, const char *path) {
 
 	check_mem_space_read (f, path, 0, true);
 	ASSERT (0);
-	if ((dir_name = parse_path (path, *dir)) != NULL) {
+	if ((dir_name = parse_path (path, &dir)) != NULL) {
 		if (dir_lookup (dir, dir_name, &inode)) {
 			ASSERT (inode_is_dir (inode));
 			new_dir = dir_open (inode);
@@ -665,7 +665,7 @@ syscall_mkdir (struct intr_frame *f, const char *path) {
 
 	check_mem_space_read (f, path, 0, true);
 
-	if ((dir_name = parse_path (path, *dir)) != NULL) {
+	if ((dir_name = parse_path (path, &dir)) != NULL) {
 		success = (inode_clst = fat_create_chain (0))
 				&& dir_create (inode_clst)
 				&& dir_add (dir, dir_name, inode_clst);
