@@ -293,10 +293,12 @@ syscall_remove (struct intr_frame *f, const char *path) {
 		if (dir_lookup (dir, name, &inode)) {
 			if (inode_is_dir (inode) && inode_length (inode) == 0) {
 				inode_remove (inode);
+				inode_close (inode);
 				success = true;
-			} else
+			} else {
 				success = filesys_remove(name, dir);
-			inode_close (inode);
+				inode_close (inode);
+			}
 		}
 		dir_close (dir);
 		free (name);
