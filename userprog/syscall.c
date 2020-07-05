@@ -870,7 +870,7 @@ static char *
 parse_path (const char *path, struct dir **dirp) {
 	enum st {NONE, SLASH, NAME};
 
-	char *name, *name_buf, c;
+	char *name = NULL, *name_buf, c;
 	int name_len = 0;
 	struct inode *inode = NULL;
 	struct dir *dir = NULL;
@@ -958,11 +958,16 @@ parse_path (const char *path, struct dir **dirp) {
 		}
 	}
 	if (state != NONE) {
-		if (state == SLASH) {
+		if (state == SLASH && name == NULL) {
+			/* Root dir. */
+			ASSERT (name_len == 0);
+			name_buf[0] = NULL;
+		} else if (state == NAME) {
+			ASSERT (name_len >= 1 && name_len <= NAME_MAX);
+			strlcpy (name_buf, name, name_len + 1);
+		} else {
 			ASSERT (0);///////////////////////////////////////////////////////////////NOT HANDLED YET
 		}
-		ASSERT (name_len >= 1 && name_len <= NAME_MAX);
-		strlcpy (name_buf, name, name_len + 1);
 		*dirp = dir;
 		return name_buf;
 	}
