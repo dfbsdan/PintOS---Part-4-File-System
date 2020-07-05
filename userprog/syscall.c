@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <syscall-nr.h>
 #include <string.h>
+#include <ctype.h>
 #include "threads/interrupt.h"
 #include "threads/thread.h"
 #include "threads/loader.h"
@@ -866,10 +867,111 @@ create_file_descriptor (void *ptr, bool is_dir) {
  * while setting *DIRP to it. */
 static char *
 parse_path (const char *path, struct dir **dirp) {
-	char *name;
+	enum st {NONE, SLASH, NAME};
+
+	char *name, *name_buf, c;
+	int name_len = 0;
+	struct inode *inode = NULL;
+	struct dir *dir = NULL;
+	enum st state = NONE;
+	
 	ASSERT (path && dirp);
 
-	ASSERT (0);///////////////////////////////////////////////////////////////////NOT FINISHED
+	*dirp = NULL;
+	name_buf = (char*)malloc (NAME_MAX + 1);
+	if (!name_buf)
+		return NULL;
+	for (int i = 0; i < strlen (path); i++) {
+		c = path[i];
+		switch (state) {
+			case NONE:
+				if (isspace (c))
+					/* Skip initial spaces. */
+					continue;
+				else if (c == '/') {
+					/* Root dir. */
+					dir = dir_open_root ()
+					if (!dir){
+						goto error;
+					state = SLASH;
+				} else if (c == '.') {
+					ASSERT (0);///////////////////////////////////////////////////////////NOT HANDLED YET
+				} else {
+					dir = dir_reopen (thread_current ()->curr_dir);
+					if (!dir) {
+						goto error;
+					name = &path[i];
+					name_len = 1;
+					state = NAME;
+				}
+				break
+			case SLASH:
+				if (isspace (c)) {
+					/* Must be the end of the path. */
+					for ( ; i < strlen (path); i++) {
+						c = path[i];
+						if (!isspace (c))
+							goto error;
+					}
+				} else if (c == '.') {
+					ASSERT (0);///////////////////////////////////////////////////////////NOT HANDLED YET
+				} else {
+					name = &path[i];
+					name_len = 1;
+					state = NAME;
+				}
+				break;
+			case NAME:
+				if (isspace (c)) {
+					/* Must be the end of the path. */
+					for ( ; i < strlen (path); i++) {
+						c = path[i];
+						if (!isspace (c))
+							goto error;
+					}
+				} else if (c == '/') {
+					c = path[i+1];
+					if (c && !isspace (c) && c != '/') {
+						/* Open dir. */
+						strlcpy (name_buf, name, name_len + 1);
+						if (dir_lookup (dir, name_buf, &inode)) {
+							if (!inode_is_dir (inode))
+								goto error; /* File found, dir expected. */
+							dir_close (dir);
+							dir = dir_open (inode)
+							if (!dir)
+								goto error;
+						} else
+							goto error; /* Not found. */
+						state = SLASH;
+					} else {
+						ASSERT (0);/////////////////////////////////////////////////////////NOTE HANDLED YET
+					}
+				} else {
+					if (++name_len > NAME_MAX)
+						goto error;
+				}
+				break
+			default:
+				ASSERT (0);
+		}
+	}
+	if (state != NONE) {
+		if (state == SLASH) {
+			ASSERT (0);///////////////////////////////////////////////////////////////NOT HANDLED YET
+		}
+		ASSERT (name_len >= 1 && name_len <= NAME_MAX);
+		strlcpy (name_buf, name, name_len + 1);
+		*dirp = dir;
+		return name_buf;
+	}
+error:
+	if (dir)
+		dir_close (dir);
+	if (inode)
+		inode_close (inode);
+	free (name_buf);
+	return NULL;
 }
 
 /* Given the address ADDR of a memory space of size SIZE bytes, this
