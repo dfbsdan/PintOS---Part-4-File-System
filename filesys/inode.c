@@ -333,6 +333,8 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 			if (!inode_grow (inode, offset, size))
 				break;
 			clst = byte_to_cluster (inode, offset);
+			if (clst == 0)
+				continue;
 		}
 		ASSERT (fat_get (clst));
 		int sector_ofs = offset % DISK_SECTOR_SIZE;
