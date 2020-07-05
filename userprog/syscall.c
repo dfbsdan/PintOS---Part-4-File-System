@@ -52,6 +52,7 @@ static int syscall_dup2 (int oldfd, int newfd);
 static void *syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void syscall_munmap (void *addr);
 static bool syscall_isdir (int fd);
+static int syscall_inumber (int fd);
 static int create_file_descriptor (struct file *file);
 static void check_mem_space_read (struct intr_frame *f, const void *addr_, const size_t size, const bool is_str);
 static void check_mem_space_write (struct intr_frame *f, const void *addr_, const size_t size);
@@ -138,7 +139,9 @@ syscall_handler (struct intr_frame *f) {
 		case SYS_ISDIR:			/* Tests if a fd represents a directory. */
 			f->R.rax = (uint64_t)syscall_isdir ((int)f->R.rdi);
 			break;
-		//case SYS_INUMBER:		/* Returns the inode number for a fd. */
+		case SYS_INUMBER:		/* Returns the inode number for a fd. */
+			f->R.rax = (uint64_t)syscall_inumber ((int)f->R.rdi);
+			break;
 		default:
 			ASSERT (0); //Unknown syscall (could not be implemented yet)
 	}
@@ -756,6 +759,44 @@ syscall_isdir (int fd) {
 					&& file_descriptor->fd_file == NULL
 					&& file_descriptor->dup_fds == NULL);
 			return false;
+		default:
+			ASSERT (0);
+	}
+	ASSERT (0); /* Should not be reached. */
+}
+
+/* Returns the inode number of the inode associated with fd, which may represent
+ * an ordinary file or a directory.
+ * An inode number persistently identifies a file or directory. It is unique
+ * during the files existence. In Pintos, the sector number of the inode is
+ * suitable for use as an inode number. */
+static int
+syscall_inumber (int fd) {
+	struct fd_table *fd_t = &thread_current ()->fd_t;
+	struct file_descriptor *file_descriptor;
+
+	ASSERT (fd_t->table);
+	ASSERT (fd_t->size <= MAX_FD + 1);
+
+	if (fd < 0 || fd > MAX_FD)
+		return -1;
+	file_descriptor = &fd_t->table[fd];
+	switch (file_descriptor->fd_st) {
+		case FD_OPEN:
+			if (file_descriptor->fd_file == NULL) {
+				ASSERT ((file_descriptor->fd_t == FDT_STDIN
+						|| file_descriptor->fd_t == FDT_STDOUT)
+						&& file_descriptor->dup_fds == NULL);
+				return -1;
+			}
+			ASSERT (file_descriptor->fd_t == FDT_OTHER
+					&& file_descriptor->dup_fds);
+			return inode_get_inumber (file_get_inode (file_descriptor->fd_file));
+		case FD_CLOSE:
+			ASSERT (file_descriptor->fd_t == FDT_OTHER
+					&& file_descriptor->fd_file == NULL
+					&& file_descriptor->dup_fds == NULL);
+			return -1;
 		default:
 			ASSERT (0);
 	}
