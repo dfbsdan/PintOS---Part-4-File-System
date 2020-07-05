@@ -7,6 +7,7 @@
 #include <string.h>
 #include "userprog/gdt.h"
 #include "userprog/tss.h"
+#include "userprog/syscall.h"
 #include "filesys/directory.h"
 #include "filesys/file.h"
 #include "filesys/filesys.h"
@@ -221,9 +222,8 @@ error:
 static bool
 duplicate_fd_table (struct fd_table *parent_fd_t) {
 	struct fd_table *curr_fd_t = &thread_current ()->fd_t;
-	struct file_descriptor *parent_fd, *curr_fd, *dup_fd;
+	struct file_descriptor *parent_fd, *curr_fd;
 	enum intr_level old_level;
-	size_t dup_cnt;
 
 	ASSERT (parent_fd_t);
 	ASSERT (parent_fd_t->table);
@@ -236,10 +236,10 @@ duplicate_fd_table (struct fd_table *parent_fd_t) {
 	/* Initially close stdin and stdout. */
 	curr_fd = &curr_fd_t->table[0];
 	curr_fd->fd_st = FD_CLOSE;
-	curr_fd->fd_t = FDT_OTHER;
+	curr_fd->fd_t = FDT_NONE;
 	curr_fd = &curr_fd_t->table[1];
 	curr_fd->fd_st = FD_CLOSE;
-	curr_fd->fd_t = FDT_OTHER;
+	curr_fd->fd_t = FDT_NONE;
 
 	/* Copy file descriptors. */
 	for (int i = 0; i <= MAX_FD; i++) {
@@ -251,7 +251,7 @@ duplicate_fd_table (struct fd_table *parent_fd_t) {
 		switch (parent_fd->fd_st) {
 			case FD_OPEN:
 				/* Copy open fd. */
-				switch (parent_fd->fd_st) {
+				switch (parent_fd->fd_t) {
 					case FDT_STDIN:
 						break;
 					case FDT_STDOUT:
@@ -615,7 +615,7 @@ load (const char *command, struct intr_frame *if_) {
 	if (file_name == NULL)
 		goto done;
 	/* Open executable file. */
-	file = filesys_open (file_name);
+	file = filesys_open (file_name, NULL);
 	if (file == NULL) {
 		printf ("load: %s: open failed\n", file_name);
 		goto done;
