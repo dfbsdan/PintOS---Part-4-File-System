@@ -891,14 +891,14 @@ parse_path (const char *path, struct dir **dirp) {
 				else if (c == '/') {
 					/* Root dir. */
 					dir = dir_open_root ();
-					if (!dir) {
+					if (!dir)
 						goto error;
 					state = SLASH;
 				} else if (c == '.') {
 					ASSERT (0);///////////////////////////////////////////////////////////NOT HANDLED YET
 				} else {
 					dir = dir_reopen (thread_current ()->curr_dir);
-					if (!dir) {
+					if (!dir)
 						goto error;
 					name = &path[i];
 					name_len = 1;
