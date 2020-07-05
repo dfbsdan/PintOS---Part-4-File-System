@@ -403,6 +403,7 @@ inode_open_cnt (const struct inode *inode) {
 /* Returns TRUE if the given INODE is a directory. */
 bool
 inode_is_dir (const struct inode *inode) {
-	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	ASSERT (inode &&
+			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 	return inode->data.is_dir;
 }
