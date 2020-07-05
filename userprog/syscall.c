@@ -874,14 +874,14 @@ parse_path (const char *path, struct dir **dirp) {
 	struct inode *inode = NULL;
 	struct dir *dir = NULL;
 	enum st state = NONE;
-	
+
 	ASSERT (path && dirp);
 
 	*dirp = NULL;
 	name_buf = (char*)malloc (NAME_MAX + 1);
 	if (!name_buf)
 		return NULL;
-	for (int i = 0; i < strlen (path); i++) {
+	for (size_t i = 0; i < strlen (path); i++) {
 		c = path[i];
 		switch (state) {
 			case NONE:
@@ -890,8 +890,8 @@ parse_path (const char *path, struct dir **dirp) {
 					continue;
 				else if (c == '/') {
 					/* Root dir. */
-					dir = dir_open_root ()
-					if (!dir){
+					dir = dir_open_root ();
+					if (!dir) {
 						goto error;
 					state = SLASH;
 				} else if (c == '.') {
