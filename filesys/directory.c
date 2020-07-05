@@ -19,11 +19,11 @@ struct dir_entry {
 	bool in_use;                        /* In use or free? */
 };
 
-/* Creates a directory with space for ENTRY_CNT entries in the
- * given cluster CLST.  Returns true if successful, false on failure. */
+/* Creates a directory in the given cluster CLST, initialized to 0 bytes.
+ * Returns true if successful, false on failure. */
 bool
-dir_create (cluster_t clst, size_t entry_cnt) {
-	return inode_create (clst, entry_cnt * sizeof (struct dir_entry));
+dir_create (cluster_t clst) {
+	return inode_create (clst, 0, true);
 }
 
 /* Opens and returns the directory for the given INODE, of which
@@ -32,6 +32,7 @@ struct dir *
 dir_open (struct inode *inode) {
 	struct dir *dir = calloc (1, sizeof *dir);
 	if (inode != NULL && dir != NULL) {
+		ASSERT (inode_is_dir (inode));
 		dir->inode = inode;
 		dir->pos = 0;
 		return dir;
@@ -71,7 +72,7 @@ dir_get_inode (struct dir *dir) {
 	return dir->inode;
 }
 
-/* Searches DIR for a file with the given NAME.
+/* Searches DIR for a file/dir with the given NAME.
  * If successful, returns true, sets *EP to the directory entry
  * if EP is non-null, and sets *OFSP to the byte offset of the
  * directory entry if OFSP is non-null.
@@ -97,9 +98,9 @@ lookup (const struct dir *dir, const char *name,
 	return false;
 }
 
-/* Searches DIR for a file with the given NAME
+/* Searches DIR for a file/dir with the given NAME
  * and returns true if one exists, false otherwise.
- * On success, sets *INODE to an inode for the file, otherwise to
+ * On success, sets *INODE to an inode for the file/dir, otherwise to
  * a null pointer.  The caller must close *INODE. */
 bool
 dir_lookup (const struct dir *dir, const char *name,
@@ -117,8 +118,8 @@ dir_lookup (const struct dir *dir, const char *name,
 	return *inode != NULL;
 }
 
-/* Adds a file named NAME to DIR, which must not already contain a
- * file by that name.  The file's inode is in cluster
+/* Adds a file/dir named NAME to DIR, which must not already contain a
+ * file/dir by that name.  The file/dir's inode is in cluster
  * INODE_CLST.
  * Returns true if successful, false on failure.
  * Fails if NAME is invalid (i.e. too long) or a disk or memory
@@ -131,6 +132,7 @@ dir_add (struct dir *dir, const char *name, cluster_t inode_clst) {
 
 	ASSERT (dir != NULL);
 	ASSERT (name != NULL);
+	ASSERT (fat_get (inode_clst) == EOChain);
 
 	/* Check NAME for validity. */
 	if (*name == '\0' || strlen (name) > NAME_MAX)

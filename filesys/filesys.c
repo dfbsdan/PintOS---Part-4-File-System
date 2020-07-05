@@ -49,7 +49,7 @@ filesys_create (const char *name, off_t initial_size) {
 	struct dir *dir = dir_open_root ();
 	bool success = (dir != NULL
 			&& (inode_clst = fat_create_chain (0))
-			&& inode_create (inode_clst, initial_size)
+			&& inode_create (inode_clst, initial_size, false)
 			&& dir_add (dir, name, inode_clst));
 	if (!success && inode_clst != 0)
 		fat_remove_chain (inode_clst, 0);

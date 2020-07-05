@@ -14,8 +14,9 @@
 struct inode_disk {
 	cluster_t start;                		/* First data cluster. */
 	off_t length;                       /* File size in bytes. */
+	uint32_t is_dir;										/* True: is dir, false otherwise. */
 	unsigned magic;                     /* Magic number. */
-	uint32_t unused[125];               /* Not used. */
+	uint32_t unused[124];               /* Not used. */
 };
 
 /* Returns the number of sectors to allocate for an inode SIZE
@@ -70,15 +71,18 @@ inode_init (void) {
 
 /* Initializes an inode with LENGTH bytes of data and
  * writes the new inode to cluster CLST on the file system.
+ * If DIR is true, the inode is created as a directory, otherwise as a file.
  * Returns true if successful.
  * Returns false if memory or disk allocation fails. */
 bool
-inode_create (cluster_t clst, off_t length) {
+inode_create (cluster_t clst, off_t length, bool dir) {
 	struct inode_disk *disk_inode = NULL;
 	bool success = false;
 
 	ASSERT (length >= 0);
 	ASSERT (clst && fat_get (clst) == EOChain);
+	if (dir)
+		ASSERT (length == 0);
 
 	/* If this assertion fails, the inode structure is not exactly
 	 * one sector in size, and you should fix that. */
@@ -88,6 +92,7 @@ inode_create (cluster_t clst, off_t length) {
 	if (disk_inode != NULL) {
 		size_t sectors = bytes_to_sectors (length);
 		disk_inode->length = length;
+		disk_inode->is_dir = dir;
 		disk_inode->magic = INODE_MAGIC;
 		if (fat_allocate (sectors, &disk_inode->start)) {
 			disk_write (filesys_disk, cluster_to_sector (clst), disk_inode);
@@ -141,6 +146,7 @@ inode_open (cluster_t clst) {
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
 	disk_read (filesys_disk, cluster_to_sector (inode->clst), &inode->data);
+	ASSERT (inode->data.magic == INODE_MAGIC);
 	return inode;
 }
 
@@ -155,6 +161,7 @@ inode_reopen (struct inode *inode) {
 /* Returns INODE's inode number. */
 cluster_t
 inode_get_inumber (const struct inode *inode) {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	return inode->clst;
 }
 
@@ -166,6 +173,8 @@ inode_close (struct inode *inode) {
 	/* Ignore null pointer. */
 	if (inode == NULL)
 		return;
+
+	ASSERT (inode->data.magic == INODE_MAGIC);
 
 	/* Release resources if this was the last opener. */
 	if (--inode->open_cnt == 0) {
@@ -198,6 +207,8 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 	uint8_t *buffer = buffer_;
 	off_t bytes_read = 0;
 	uint8_t *bounce = NULL;
+
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 
 	while (size > 0) {
 		/* Disk sector to read, starting byte offset within sector. */
@@ -241,7 +252,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 
 	return bytes_read;
 }
- /* Grows the given INODE until OFFSET can be found inside it. */
+ /* Grows the given INODE until OFFSET + SIZE can be found inside it. */
 static bool
 inode_grow (struct inode *inode, off_t offset, off_t size) {
 	size_t bytes_left, new_bytes;
@@ -249,11 +260,12 @@ inode_grow (struct inode *inode, off_t offset, off_t size) {
 	cluster_t clst;
 	static char zeros[DISK_SECTOR_SIZE];
 
-	ASSERT (inode);
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	data_len = &inode->data.length;
 	ASSERT (offset >= *data_len);
 	ASSERT (size >= 1);
 
+	ASSERT (inode->data.start);///////////////////////////////////////////////////TESTING LINE
 	/* Make sure there is at least one cluster allocated. */
 	if (!inode->data.start) {
 		ASSERT (*data_len == 0);
@@ -294,6 +306,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	off_t bytes_written = 0;
 	uint8_t *bounce = NULL;
 
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	if (inode->deny_write_cnt)
 		return 0;
 
@@ -355,6 +368,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	void
 inode_deny_write (struct inode *inode)
 {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	inode->deny_write_cnt++;
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 }
@@ -364,6 +378,7 @@ inode_deny_write (struct inode *inode)
  * inode_deny_write() on the inode, before closing the inode. */
 void
 inode_allow_write (struct inode *inode) {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	ASSERT (inode->deny_write_cnt > 0);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	inode->deny_write_cnt--;
@@ -372,12 +387,21 @@ inode_allow_write (struct inode *inode) {
 /* Returns the length, in bytes, of INODE's data. */
 off_t
 inode_length (const struct inode *inode) {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	return inode->data.length;
 }
 
 /* Returns the number of times the inode has been opened. */
 int
 inode_open_cnt (const struct inode *inode) {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
 	ASSERT (inode->deny_write_cnt <= inode->open_cnt);
 	return inode->open_cnt;
+}
+
+/* Returns TRUE if the given INODE is a directory. */
+bool
+inode_is_dir (const struct inode *inode) {
+	ASSERT (inode && inode->data.magic == INODE_MAGIC);
+	return inode->data.is_dir;
 }
