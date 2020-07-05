@@ -46,6 +46,7 @@ filesys_done (void) {
 bool
 filesys_create (const char *name, off_t initial_size, struct dir *dir) {
 	cluster_t inode_clst = 0;
+	bool success;
 
 	if (dir) {
 		success = ((inode_clst = fat_create_chain (0))
