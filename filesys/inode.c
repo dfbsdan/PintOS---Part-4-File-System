@@ -34,7 +34,7 @@ struct inode {
 	int open_cnt;                       /* Number of openers. */
 	bool removed;                       /* True if deleted, false otherwise. */
 	int deny_write_cnt;                 /* 0: writes ok, >0: deny writes. */
-	struct lock rw_lock;
+	struct semaphore rw_sema;
 	struct inode_disk data;             /* Inode content. */
 };
 
@@ -149,7 +149,7 @@ inode_open (cluster_t clst) {
 	inode->open_cnt = 1;
 	inode->deny_write_cnt = 0;
 	inode->removed = false;
-	lock_init (&inode->rw_lock);
+	sema_init (&inode->rw_sema, 1);
 	disk_read (filesys_disk, cluster_to_sector (inode->clst), &inode->data);
 	ASSERT (inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER);
 	return inode;
@@ -222,7 +222,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 	ASSERT (inode &&
 			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
 
-	lock_acquire (&inode->rw_lock);
+	sema_down (&inode->rw_sema);
 	while (size > 0) {
 		/* Disk sector to read, starting byte offset within sector. */
 		cluster_t clst = byte_to_cluster (inode, offset);
@@ -261,7 +261,7 @@ inode_read_at (struct inode *inode, void *buffer_, off_t size, off_t offset) {
 		offset += chunk_size;
 		bytes_read += chunk_size;
 	}
-	lock_release (&inode->rw_lock);
+	sema_up (&inode->rw_sema);
 	free (bounce);
 
 	return bytes_read;
@@ -325,7 +325,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 	if (inode->deny_write_cnt)
 		return 0;
 
-	lock_acquire (&inode->rw_lock);
+	sema_down (&inode->rw_sema);
 	while (size > 0) {
 		/* Sector to write, starting byte offset within sector. */
 		cluster_t clst = byte_to_cluster (inode, offset);
@@ -374,7 +374,7 @@ inode_write_at (struct inode *inode, const void *buffer_, off_t size,
 		offset += chunk_size;
 		bytes_written += chunk_size;
 	}
-	lock_release (&inode->rw_lock);
+	sema_up (&inode->rw_sema);
 	free (bounce);
 
 	return bytes_written;
