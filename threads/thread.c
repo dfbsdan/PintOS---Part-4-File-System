@@ -251,7 +251,7 @@ thread_create (const char *name, int priority,
 		return TID_ERROR;
 	}
 	if (curr->curr_dir)
-		t->curr_dir = dir_open (dir_get_inode (curr->curr_dir));
+		t->curr_dir = dir_open (inode_reopen (dir_get_inode (curr->curr_dir)));
 	else {
 		ASSERT (curr == initial_thread);
 		t->curr_dir = (function != idle)? dir_open_root (): NULL;
