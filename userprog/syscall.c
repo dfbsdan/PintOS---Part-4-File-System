@@ -51,6 +51,7 @@ static void syscall_close (int fd);
 static int syscall_dup2 (int oldfd, int newfd);
 static void *syscall_mmap(void *addr, size_t length, int writable, int fd, off_t offset);
 static void syscall_munmap (void *addr);
+static bool syscall_isdir (int fd);
 static int create_file_descriptor (struct file *file);
 static void check_mem_space_read (struct intr_frame *f, const void *addr_, const size_t size, const bool is_str);
 static void check_mem_space_write (struct intr_frame *f, const void *addr_, const size_t size);
@@ -134,7 +135,9 @@ syscall_handler (struct intr_frame *f) {
 		//case SYS_CHDIR:			/* Change the current directory. */
 		//case SYS_MKDIR:			/* Create a directory. */
 		//case SYS_READDIR:		/* Reads a directory entry. */
-		//case SYS_ISDIR:			/* Tests if a fd represents a directory. */
+		case SYS_ISDIR:			/* Tests if a fd represents a directory. */
+			f->R.rax = (uint64_t)syscall_isdir ((int)f->R.rdi);
+			break;
 		//case SYS_INUMBER:		/* Returns the inode number for a fd. */
 		default:
 			ASSERT (0); //Unknown syscall (could not be implemented yet)
@@ -724,6 +727,40 @@ syscall_munmap (void *addr) {
 	do_munmap (addr, false);
 }
 
+/* Returns true if fd represents a directory, false if it represents an ordinary
+ * file. */
+static bool
+syscall_isdir (int fd) {
+	struct fd_table *fd_t = &thread_current ()->fd_t;
+	struct file_descriptor *file_descriptor;
+
+	ASSERT (fd_t->table);
+	ASSERT (fd_t->size <= MAX_FD + 1);
+
+	if (fd < 0 || fd > MAX_FD)
+		return false;
+	file_descriptor = &fd_t->table[fd];
+	switch (file_descriptor->fd_st) {
+		case FD_OPEN:
+			if (file_descriptor->fd_file == NULL) {
+				ASSERT ((file_descriptor->fd_t == FDT_STDIN
+						|| file_descriptor->fd_t == FDT_STDOUT)
+						&& file_descriptor->dup_fds == NULL);
+				return false;
+			}
+			ASSERT (file_descriptor->fd_t == FDT_OTHER
+					&& file_descriptor->dup_fds);
+			return inode_is_dir (file_get_inode (file_descriptor->fd_file));
+		case FD_CLOSE:
+			ASSERT (file_descriptor->fd_t == FDT_OTHER
+					&& file_descriptor->fd_file == NULL
+					&& file_descriptor->dup_fds == NULL);
+			return false;
+		default:
+			ASSERT (0);
+	}
+	ASSERT (0); /* Should not be reached. */
+}
 
 /* Given the address ADDR of a memory space of size SIZE bytes, this
  * function checks if a memory violation occurs when trying to read from it.
