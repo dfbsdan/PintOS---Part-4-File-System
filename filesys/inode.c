@@ -95,6 +95,8 @@ inode_create (cluster_t clst, off_t length, bool dir) {
 	disk_inode = calloc (1, sizeof *disk_inode);
 	if (disk_inode != NULL) {
 		size_t sectors = bytes_to_sectors (length);
+		if (sectors == 0)
+			sectors = 1;
 		disk_inode->length = length;
 		disk_inode->is_dir = dir;
 		disk_inode->magic = INODE_MAGIC;
