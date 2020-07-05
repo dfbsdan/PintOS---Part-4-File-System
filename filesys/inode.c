@@ -405,5 +405,5 @@ bool
 inode_is_dir (const struct inode *inode) {
 	ASSERT (inode &&
 			(inode->data.magic == INODE_MAGIC || inode->clst == ROOT_DIR_CLUSTER));
-	return inode->data.is_dir;
+	return inode->data.is_dir || inode->clst == ROOT_DIR_CLUSTER;
 }
