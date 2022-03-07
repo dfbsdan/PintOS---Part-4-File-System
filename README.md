@@ -1,4 +1,4 @@
-## Pintos - Part 4: File System
+## Pintos - Part 4: File System Implementation
 
 Brand new pintos for Operating Systems and Lab (CS330), KAIST, by Youngjin Kwon.
 
